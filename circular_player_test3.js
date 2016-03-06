@@ -54,11 +54,11 @@ document.getElementById('container').addEventListener('click', function(e){
 function togglePlayPause() {
    if (audio.paused || audio.ended) {
       playpause.title = "Pause";
-      playpause.innerHTML = '<i class="fa fa-pause fa-3x"></i>';
+      playpause.innerHTML = '<i class="fa fa-pause"></i>';
       audio.play();
    } else {
       playpause.title = "Play";
-      playpause.innerHTML = '<i class="fa fa-play fa-3x"></i>';
+      playpause.innerHTML = '<i class="fa fa-play"></i>';
       audio.pause();
    }
 }
@@ -96,7 +96,7 @@ function updateProgress() {
 function resetPlayer() {
 	  audio.currentTime = 0; context.clearRect(0,0,canvas.width,canvas.height);
   playpause.title = "Play";
-	  playpause.innerHTML = '<i class="fa fa-play fa-3x"></i>';
+	  playpause.innerHTML = '<i class="fa fa-play"></i>';
 }
 
 // thx to: http://www.adobe.com/devnet/html5/articles/html5-multimedia-pt3.html
