@@ -22,7 +22,7 @@
 	{
 		"url": "http://javier.is/",
 		"name": "Javier Arce",
-		"desc": "Coworker and friend. His website is one of my  <a href = "https://twitter.com/fdans/status/615822166827765761" target="_blank">annotation ! </a> favourite places on the internet."
+		"desc": "Coworker and friend. His website is one of my  <a href = 'https://twitter.com/fdans/status/615822166827765761' target='_blank'>annotation ! </a> favourite places on the internet."
 	},
 	{
 		"url": "http://louisck.net/",
