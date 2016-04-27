@@ -1,0 +1,3405 @@
+      SUBROUTINE F01BRF(N,NZ,A,LICN,IRN,LIRN,ICN,U,IKEEP,IW,W,LBLOCK,
+     *                  GROW,ABORT,IDISP,IFAIL)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA28A
+C
+C     THE PARAMETERS ARE AS FOLLOWS.....
+C     N     INTEGER  ORDER OF MATRIX  NOT ALTERED BY SUBROUTINE.
+C     NZ    INTEGER  NUMBER OF NON-ZEROS IN INPUT MATRIX  NOT
+C     .     ALTERED BY SUBROUTINE.
+C     A     REAL ARRAY  LENGTH LICN.  HOLDS NON-ZEROS OF
+C     .     MATRIX ON ENTRY AND NON-ZEROS OF FACTORS ON EXIT.
+C     .     REORDERED BY F01BRZ AND F01BRY AND ALTERED BY F01BRT.
+C     LICN  INTEGER  LENGTH OF ARRAYS A AND ICN.  NOT ALTERED BY
+C     .     SUBROUTINE.
+C     IRN   INTEGER ARRAY  LENGTH LIRN.  HOLDS ROW INDICES ON INPUT
+C     .     AND USED AS WORKSPACE BY F01BRT TO HOLD COLUMN
+C     .     ORIENTATION OF MATRIX.
+C     LIRN  INTEGER  LENGTH OF ARRAY IRN.
+C     ICN   INTEGER ARRAY  LENGTH LICN.  HOLDS COLUMN INDICES ON
+C     .     ENTRY AND COLUMN INDICES OF DECOMPOSED MATRIX ON EXIT.
+C     .     REORDERED BY F01BRZ AND F01BRY AND ALTERED BY F01BRT.
+C     U     REAL VARIABLE  SET BY USER TO CONTROL BIAS TOWARDS
+C     .     NUMERIC OR SPARSITY PIVOTING.  U=1.0 GIVES PARTIAL
+C     .     PIVOTING WHILE U=0. DOES NOT CHECK MULTIPLIERS AT ALL.
+C     .     VALUES OF U GREATER THAN ONE ARE TREATED AS ONE WHILE
+C     .     NEGATIVE VALUES ARE TREATED AS ZERO.  NOT ALTERED BY
+C     .     SUBROUTINE.
+C     IKEEP  INTEGER ARRAY  LENGTH 5*N  USED AS WORKSPACE BY F01BRF
+C     .     (SEE LATER COMMENTS).  IT IS NOT REQUIRED TO BE SET ON
+C     .     ENTRY AND, ON EXIT, IT CONTAINS INFORMATION ABOUT THE
+C     .     DECOMPOSITION.  IT SHOULD BE PRESERVED BETWEEN THIS CALL
+C     .     AND SUBSEQUENT CALLS TO F01BSF OR F04AXF.
+C     IKEEP(I,1),I=1,N  HOLDS THE TOTAL LENGTH OF THE PART OF ROW I
+C     .     IN THE DIAGONAL BLOCK.
+C     ROW IKEEP(I,2),I=1,N  OF THE INPUT MATRIX IS THE ITH ROW IN
+C     .     PIVOT ORDER.
+C     COLUMN IKEEP(I,3),I=1,N  OF THE INPUT MATRIX IS THE ITH
+C     .     COLUMN IN PIVOT ORDER.
+C     IKEEP(I,4),I=1,N  HOLDS THE LENGTH OF THE PART OF ROW I IN
+C     .     THE L PART OF THE L/U DECOMPOSITION.
+C     IKEEP(I,5),I=1,N  HOLDS THE LENGTH OF THE PART OF ROW I IN
+C     .     THE OFF-DIAGONAL BLOCKS.  IF THERE IS ONLY ONE DIAGONAL
+C     .     BLOCK, IKEEP(1,5) WILL BE SET TO -1.
+C     IW    INTEGER ARRAY LENGTH 8*N.
+C     .     USED AS WORKSPACE.
+C     W     REAL ARRAY  LENGTH N.  USED BY F01BRQ BOTH AS WORKSPACE
+C     .     AND TO RETURN GROWTH ESTIMATE IN W(1).  THE USE OF THIS
+C     .     ARRAY BY F01BRF IS THUS OPTIONAL DEPENDING ON THE VALUE
+C     .     OF PARAMETER GROW.
+C     LBLOCK  LOGICAL IF TRUE, F01BRY IS USED TO FIRST PERMUTE
+C     .     THE MATRIX TO BLOCK LOWER TRIANGULAR FORM.
+C     GROW  LOGICAL IF TRUE, THEN AN ESTIMATE OF THE INCREASE
+C     .     IN SIZE OF MATRIX ELEMENTS DURING L/U DECOMPOSITION IS
+C     .     GIVEN BY F01BRQ IN W(1).
+C     ABORT  LOGICAL ARRAY LENGTH 4.
+C     IF ABORT(1)=TRUE, THE ROUTINE WILL EXIT IMMEDIATELY
+C     .     ON DETECTING STRUCTURAL SINGULARITY.
+C     IF ABORT(2)=TRUE, THE ROUTINE WILL EXIT IMMEDIATELY
+C     .     ON DETECTING NUMERICAL SINGULARITY.
+C     IF ABORT(3)=TRUE, THE ROUTINE WILL EXIT IMMEDIATELY WHEN THE
+C     .     AVAILABLE SPACE IN A/ICN IS FILLED UP BY THE PREVIOUSLY
+C     .     DECOMPOSED ACTIVE, AND UNDECOMPOSED PARTS OF THE MATRIX.
+C     IF ABORT(4)=TRUE, THE ROUTINE WILL EXIT IMMEDIATELY
+C     .     ON DETECTING DUPLICATE ELEMENTS IN THE INPUT MATRIX.
+C     IDISP  INTEGER ARRAY LENGTH 10. USED TO COMMUNICATE
+C     .     INFORMATION ABOUT THE DECOMPOSITION TO THE USER AND
+C     .     ALSO BETWEEN THIS CALL TO F01BRF AND SUBSEQUENT CALLS
+C     .     TO F01BSF AND F04AXF.
+C     ON EXIT -
+C     IDISP(1) AND IDISP(2) INDICATE THE POSITION IN ARRAYS A AND
+C     .     ICN OF THE FIRST AND LAST ELEMENTS IN THE L/U
+C     .     DECOMPOSITION OF THE DIAGONAL BLOCKS RESPECTIVELY.
+C     IDISP(3)= IRNCP  THE NUMBER OF COMPRESSES ON ARRAY IRN.
+C     IDISP(4)= ICNCP  THE NUMBER OF COMPRESSES ON ARRAYS ICN/A.
+C     IDISP(5)= IRANK  ESTIMATED RANK OF THE MATRIX.
+C     IDISP(6)= MINIRN MINIMUM LENGTH OF ARRAY IRN FOR SUCCESS ON
+C     .     FUTURE RUNS.
+C     IDISP(7)= MINICN MINIMUM LENGTH OF ARRAYS ICN/A FOR SUCCESS
+C     .     ON FUTURE RUNS.
+C     IDISP(8)= NUMNZ  STRUCTURAL RANK OF MATRIX.
+C     IDISP(9)= NUM    NUMBER OF DIAGONAL BLOCKS.
+C     IDISP(10)=LARGE  SIZE OF LARGEST DIAGONAL BLOCK.
+C     IFAIL  INTEGER VARIABLE  USED AS ERROR FLAG BY ROUTINE.
+C
+C     INTERNAL VARIABLES AND WORKSPACE USED IN  F01BRF ARE DEFINED
+C     WITHIN THE SUBROUTINE IMMEDIATELY PRIOR TO THEIR FIRST USE.
+C     .. Parameters ..
+      CHARACTER*6       SRNAME
+      PARAMETER         (SRNAME='F01BRF')
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  U
+      INTEGER           IFAIL, LICN, LIRN, N, NZ
+      LOGICAL           GROW, LBLOCK
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN), W(N)
+      INTEGER           ICN(LICN), IDISP(10), IKEEP(N,5), IRN(LIRN),
+     *                  IW(N,8)
+      LOGICAL           ABORT(4)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  THEMAX, UPRIV, ZERO
+      INTEGER           I, I1, IEND, II, IPRIV4, ISAVE, J, J1, J2, JAY,
+     *                  JJ, KNUM, LENGTH, MOVE, NADV, NERR, NEWJ1,
+     *                  NEWPOS
+C     .. Local Arrays ..
+      CHARACTER*1       P01REC(1)
+      CHARACTER*65      REC(3)
+C     .. External Functions ..
+      INTEGER           P01ABF
+      EXTERNAL          P01ABF
+C     .. External Subroutines ..
+      EXTERNAL          F01BRQ, F01BRR, F01BRT, F01BRY, F01BRZ, X04AAF,
+     *                  X04ABF, X04BAF
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS, MAX, MOD
+C     .. Data statements ..
+      DATA              ZERO/0.0D0/
+C     .. Executable Statements ..
+      ISAVE = IFAIL
+      IFAIL = 0
+C     NERR IS THE UNIT NUMBER FOR ERROR MESSAGES
+C     NADV IS THE UNIT NUMBER FOR DUPLICATE ELEMENT WARNING MESSAGES
+      CALL X04AAF(0,NERR)
+      CALL X04ABF(0,NADV)
+C     UPRIV PRIVATE COPY OF U IS USED IN CASE IT IS OUTSIDE
+C     RANGE  ZERO TO ONE  AND  IS THUS ALTERED BY F01BRT.
+      UPRIV = U
+C     SIMPLE DATA CHECK ON INPUT VARIABLES AND ARRAY DIMENSIONS.
+      IF (N.GT.0) GO TO 20
+      IFAIL = 8
+      GO TO 320
+   20 IF (NZ.GT.0) GO TO 40
+      IFAIL = 9
+      GO TO 320
+   40 IF (LICN.GE.NZ) GO TO 60
+      IFAIL = 10
+      GO TO 320
+   60 IF (LIRN.GE.NZ) GO TO 80
+      IFAIL = 11
+      GO TO 320
+C
+C     DATA CHECK TO SEE IF ALL INDICES LIE BETWEEN 1 AND N.
+   80 DO 100 I = 1, NZ
+         IF (IRN(I).GT.0 .AND. IRN(I).LE.N .AND. ICN(I)
+     *       .GT.0 .AND. ICN(I).LE.N) GO TO 100
+C        ** CODE FOR OUTPUT OF ERROR MESSAGE **************************
+         IF (MOD(ISAVE/10,10).NE.0) THEN
+            WRITE (REC,FMT=99999) I, A(I), IRN(I), ICN(I)
+            CALL X04BAF(NERR,REC(1))
+            CALL X04BAF(NERR,REC(2))
+            CALL X04BAF(NERR,REC(3))
+         END IF
+C        ** END OF CODE FOR OUTPUT OF ERROR MESSAGE *******************
+         IFAIL = 12
+  100 CONTINUE
+      IF (IFAIL.GT.0) GO TO 340
+C
+C     SORT ELEMENTS INTO ROW ORDER.
+C
+      CALL F01BRZ(N,NZ,A,ICN,IW,IRN)
+      IPRIV4 = IW(1,1)
+C     PART OF IKEEP IS USED HERE AS A WORK-ARRAY.  IKEEP(I,2) IS
+C     THE LAST ROW TO HAVE A NON-ZERO IN COLUMN I.  IKEEP(I,3)
+C     IS THE OFF-SET OF COLUMN I FROM THE START OF THE ROW.
+      DO 120 I = 1, N
+         IKEEP(I,2) = 0
+         IKEEP(I,1) = 0
+  120 CONTINUE
+C
+C     CHECK FOR DUPLICATE ELEMENTS .. SUMMING ANY SUCH ENTRIES AND
+C     PRINTING A WARNING MESSAGE ON UNIT NADV.
+C     MOVE IS EQUAL TO THE NUMBER OF DUPLICATE ELEMENTS FOUND.
+      MOVE = 0
+C     THE LOOP ALSO CALCULATES THE LARGEST ELEMENT IN THE MATRIX,
+C     THEMAX.
+      THEMAX = ZERO
+C     J1 IS POSITION IN ARRAYS OF FIRST NON-ZERO IN ROW.
+      J1 = IPRIV4
+      DO 220 I = 1, N
+         IF (I.NE.N) GO TO 140
+         IPRIV4 = NZ + 1
+         GO TO 160
+  140    IPRIV4 = IW(I+1,1)
+  160    LENGTH = IPRIV4 - J1
+         IF (LENGTH.EQ.0) GO TO 220
+         J2 = IPRIV4 - 1
+         NEWJ1 = J1 - MOVE
+         DO 200 JJ = J1, J2
+            J = ICN(JJ)
+            THEMAX = MAX(THEMAX,ABS(A(JJ)))
+            IF (IKEEP(J,2).EQ.I) GO TO 180
+C           FIRST TIME COLUMN HAS OCURRED IN CURRENT ROW.
+            IKEEP(J,2) = I
+            IKEEP(J,3) = JJ - MOVE - NEWJ1
+            IF (MOVE.EQ.0) GO TO 200
+C           SHIFT NECESSARY BECAUSE OF  PREVIOUS DUPLICATE ELEMENT.
+            NEWPOS = JJ - MOVE
+            A(NEWPOS) = A(JJ)
+            ICN(NEWPOS) = ICN(JJ)
+            GO TO 200
+C           DUPLICATE ELEMENT.
+  180       MOVE = MOVE + 1
+            LENGTH = LENGTH - 1
+            JAY = IKEEP(J,3) + NEWJ1
+C           ** CODE FOR OUTPUT OF WARNING MESSAGE **
+            IF (MOD(ISAVE/100,100).NE.0) THEN
+               WRITE (REC,FMT=99998) I, J, A(JJ)
+               CALL X04BAF(NADV,REC(1))
+               CALL X04BAF(NADV,REC(2))
+               CALL X04BAF(NADV,REC(3))
+            END IF
+C           ** END OF CODE FOR OUTPUT OF WARNING MESSAGE **
+            IF (ABORT(4)) IFAIL = 13
+            A(JAY) = A(JAY) + A(JJ)
+            THEMAX = MAX(THEMAX,ABS(A(JAY)))
+  200    CONTINUE
+         IKEEP(I,1) = LENGTH
+         J1 = IPRIV4
+  220 CONTINUE
+C     IF ABORT(4) IS .TRUE., DUPLICATE ELEMENTS ARE REGARDED AS
+C     AN ERROR
+      IF (IFAIL.GT.0) GO TO 320
+C
+C     KNUM IS ACTUAL NUMBER OF NON-ZEROS IN MATRIX WITH ANY
+C     MULTIPLE ENTRIES COUNTED ONLY ONCE.
+      KNUM = NZ - MOVE
+      IF ( .NOT. LBLOCK) GO TO 240
+C
+C     PERFORM BLOCK TRIANGULARISATION.
+      IFAIL = ISAVE
+      CALL F01BRY(N,ICN,A,LICN,IKEEP,IDISP,IKEEP(1,2),IKEEP(1,3)
+     *            ,IKEEP(1,5),IW(1,3),IW,ABORT(1),IFAIL)
+C     ON EXIT FROM F01BRY IDISP(8)=NUMNZ, IDISP(9)=NUM,
+C     IDISP(10) = LARGE.
+      IF (IFAIL.NE.0) GO TO 340
+      GO TO 300
+C
+C     BLOCK TRIANGULARIZATION NOT REQUESTED.
+C     MOVE STRUCTURE TO END OF DATA ARRAYS IN PREPARATION FOR
+C     F01BRT.
+C     ALSO SET LENOFF(1) TO -1 AND SET PERMUTATION ARRAYS.
+  240 DO 260 I = 1, KNUM
+         II = KNUM - I + 1
+         NEWPOS = LICN - I + 1
+         ICN(NEWPOS) = ICN(II)
+         A(NEWPOS) = A(II)
+  260 CONTINUE
+      IDISP(1) = 1
+      IDISP(2) = LICN - KNUM + 1
+      DO 280 I = 1, N
+         IKEEP(I,2) = I
+         IKEEP(I,3) = I
+  280 CONTINUE
+      IKEEP(1,5) = -1
+C
+C     PERFORM L/U DECOMOSITION ON DIAGONAL BLOCKS.
+  300 IFAIL = ISAVE
+      CALL F01BRT(N,ICN,A,LICN,IKEEP,IKEEP(1,4),IDISP,IKEEP(1,2)
+     *            ,IKEEP(1,3),IRN,LIRN,IW(1,2),IW(1,3),IW(1,4),IW(1,5)
+     *            ,IW(1,6),IW(1,7),IW(1,8),IW,UPRIV,ABORT,IFAIL)
+C
+C     ON EXIT FROM F01BRT IDISP(3) TO IDISP(7) CONTAIN
+C     IRNCP, ICNCP, IRANK, MINIRN AND MINICN RESPECTIVELY.
+      IDISP(6) = MAX(IDISP(6),NZ)
+      IDISP(7) = MAX(IDISP(7),NZ)
+      IF (IFAIL.GT.0) GO TO 340
+C
+C     REORDER OFF-DIAGONAL BLOCKS ACCORDING TO PIVOT PERMUTATION.
+      I1 = IDISP(1) - 1
+      IF (I1.NE.0) CALL F01BRR(N,ICN,A,I1,IKEEP(1,5),IKEEP(1,2)
+     *                         ,IKEEP(1,3),IW,IRN)
+C
+C     OPTIONALLY CALCULATE ELEMENT GROWTH ESTIMATE.
+      I1 = IDISP(1)
+      IEND = LICN - I1 + 1
+      IF (GROW) CALL F01BRQ(N,ICN,A(I1),IEND,IKEEP,IKEEP(1,4),W)
+C     INCREMENT GROWTH ESTIMATE BY ORIGINAL MAXIMUM ELEMENT.
+      IF (GROW) W(1) = W(1) + THEMAX
+      IF (IFAIL.EQ.0) GO TO 360
+C
+  320 CONTINUE
+C     ** CODE FOR OUTPUT OF ERROR MESSAGES *************************
+      IF (MOD(ISAVE/10,10).EQ.0) GO TO 340
+      IF (IFAIL.EQ.-2) WRITE (REC,FMT=99992)
+      IF (IFAIL.EQ.-1) WRITE (REC,FMT=99991)
+      IF (IFAIL.EQ.8) WRITE (REC,FMT=99997) N
+      IF (IFAIL.EQ.9) WRITE (REC,FMT=99996) NZ
+      IF (IFAIL.EQ.10) WRITE (REC,FMT=99995) LICN, NZ
+      IF (IFAIL.EQ.11) WRITE (REC,FMT=99994) LIRN, NZ
+      IF (IFAIL.EQ.13) WRITE (REC,FMT=99993)
+      IF (IFAIL.EQ.-1 .OR. IFAIL.EQ.-2 .OR. IFAIL.EQ.13 .OR.
+     *    (IFAIL.GE.8 .AND. IFAIL.LE.11)) THEN
+         CALL X04BAF(NERR,REC(1))
+         CALL X04BAF(NERR,REC(2))
+      END IF
+C     ** END OF CODE FOR OUTPUT OF ERROR MESSAGES ******************
+C
+  340 IFAIL = P01ABF(ISAVE,IFAIL,SRNAME,0,P01REC)
+  360 RETURN
+C
+99999 FORMAT (/' ON ENTRY IRN(I) OR ICN(I) IS OUT OF RANGE - I = ',I8,
+     *  /'  A(I) = ',1P,D14.6,'  IRN(I) = ',I8,'  ICN(I) = ',I8)
+99998 FORMAT (/' F01BRF FOUND DUPLICATE ELEMENT WITH INDICES ',I6,', ',
+     *  I6,/'  VALUE = ',1P,D14.6)
+99997 FORMAT (/' ON ENTRY N .LE. 0 , N = ',I10)
+99996 FORMAT (/' ON ENTRY NZ .LE. 0 , NZ = ',I10)
+99995 FORMAT (/' ON ENTRY LICN .LT. NZ , LICN = ',I8,'  NZ = ',I8)
+99994 FORMAT (/' ON ENTRY LIRN .LT. NZ , LIRN = ',I8,'  NZ = ',I8)
+99993 FORMAT (/' DUPLICATE ELEMENTS FOUND ON INPUT - SEE ADVISORY MESS',
+     *  'AGES')
+99992 FORMAT (/' MATRIX IS NUMERICALLY SINGULAR - DECOMPOSITION COMPLE',
+     *  'TED')
+99991 FORMAT (/' MATRIX IS STRUCTURALLY SINGULAR - DECOMPOSITION COMPL',
+     *  'ETED')
+      END
+      SUBROUTINE F01BRQ(N,ICN,A,LICN,LENR,LENRL,W)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC24A
+C
+C     OBTAINS AN ESTIMATE OF THE LARGEST ELEMENT ENCOUNTERED DURING
+C     GAUSSIAN ELIMINATION ON A SPARSE MATRIX FROM THE LU FACTORS
+C     OBTAINED.
+C
+C     .. Scalar Arguments ..
+      INTEGER           LICN, N
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN), W(N)
+      INTEGER           ICN(LICN), LENR(N), LENRL(N)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  AMAXL, AMAXU, WROWL, ZERO
+      INTEGER           I, J, J0, J1, J2, JJ
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS, MAX
+C     .. Data statements ..
+      DATA              ZERO/0.0D0/
+C     .. Executable Statements ..
+      AMAXL = ZERO
+      DO 20 I = 1, N
+         W(I) = ZERO
+   20 CONTINUE
+      J0 = 1
+      DO 120 I = 1, N
+         IF (LENR(I).EQ.0) GO TO 120
+         J2 = J0 + LENR(I) - 1
+         IF (LENRL(I).EQ.0) GO TO 60
+C        CALCULATION OF 1-NORM OF L.
+         J1 = J0 + LENRL(I) - 1
+         WROWL = ZERO
+         DO 40 JJ = J0, J1
+C           AMAXL IS THE MAXIMUM NORM OF COLUMNS OF L SO FAR FOUND.
+            WROWL = WROWL + ABS(A(JJ))
+   40    CONTINUE
+         AMAXL = MAX(AMAXL,WROWL)
+         J0 = J1 + 1
+C        CALCULATION OF NORMS OF COLUMNS OF U (MAX-NORMS).
+   60    J0 = J0 + 1
+         IF (J0.GT.J2) GO TO 100
+         DO 80 JJ = J0, J2
+            J = ICN(JJ)
+            W(J) = MAX(ABS(A(JJ)),W(J))
+   80    CONTINUE
+  100    J0 = J2 + 1
+  120 CONTINUE
+C     AMAXU IS SET TO MAXIMUM MAX-NORM OF COLUMNS OF U.
+      AMAXU = ZERO
+      DO 140 I = 1, N
+         AMAXU = MAX(AMAXU,W(I))
+  140 CONTINUE
+C     GROFAC IS MAX U MAX-NORM TIMES MAX L 1-NORM.
+      W(1) = AMAXL*AMAXU
+      RETURN
+      END
+      SUBROUTINE F01BRR(N,ICN,A,NZ,LENROW,IP,IQ,IW,IW1)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC22A
+C
+C     REPLACES A SPARSE MATRIX  A  BY THE PERMUTED MATRIX  P*A*Q ,
+C     WHERE  P  AND  Q  ARE PERMUTATION MATRICES.
+C
+C     .. Scalar Arguments ..
+      INTEGER           N, NZ
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(NZ)
+      INTEGER           ICN(NZ), IP(N), IQ(N), IW(N,2), IW1(NZ),
+     *                  LENROW(N)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  AVAL
+      INTEGER           I, ICHAIN, IOLD, IPOS, J, J2, JJ, JNUM, JVAL,
+     *                  LENGTH, NEWPOS
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS
+C     .. Executable Statements ..
+      IF (NZ.LE.0) GO TO 180
+      IF (N.LE.0) GO TO 180
+C     SET START OF ROW I IN IW(I,1) AND LENROW(I) IN IW(I,2)
+      IW(1,1) = 1
+      IW(1,2) = LENROW(1)
+      DO 20 I = 2, N
+         IW(I,1) = IW(I-1,1) + LENROW(I-1)
+         IW(I,2) = LENROW(I)
+   20 CONTINUE
+C     PERMUTE LENROW ACCORDING TO IP.  SET OFF-SETS FOR NEW
+C     POSITION OF ROW IOLD IN IW(IOLD,1) AND PUT OLD ROW INDICES
+C     IN IW1 IN POSITIONS CORRESPONDING TO THE NEW POSITION OF
+C     THIS ROW IN A/ICN.
+      JJ = 1
+      DO 60 I = 1, N
+         IOLD = IP(I)
+         IOLD = ABS(IOLD)
+         LENGTH = IW(IOLD,2)
+         LENROW(I) = LENGTH
+         IF (LENGTH.EQ.0) GO TO 60
+         IW(IOLD,1) = IW(IOLD,1) - JJ
+         J2 = JJ + LENGTH - 1
+         DO 40 J = JJ, J2
+            IW1(J) = IOLD
+   40    CONTINUE
+         JJ = J2 + 1
+   60 CONTINUE
+C     SET INVERSE PERMUTATION TO IQ IN IW(.,2).
+      DO 80 I = 1, N
+         IOLD = IQ(I)
+         IOLD = ABS(IOLD)
+         IW(IOLD,2) = I
+   80 CONTINUE
+C     PERMUTE A AND ICN IN PLACE, CHANGING TO NEW COLUMN NUMBERS.
+C
+C     ***   MAIN LOOP   ***
+C     EACH PASS THROUGH THIS LOOP PLACES A CLOSED CHAIN OF COLUMN
+C     INDICES IN THEIR NEW (AND FINAL) POSITIONS ... THIS IS
+C     RECORDED BY SETTING THE IW1 ENTRY TO ZERO SO THAT ANY WHICH
+C     ARE SUBSEQUENTLY ENCOUNTERED DURING THIS MAJOR SCAN CAN BE
+C     BYPASSED.
+      DO 160 I = 1, NZ
+         IOLD = IW1(I)
+         IF (IOLD.EQ.0) GO TO 160
+         IPOS = I
+         JVAL = ICN(I)
+C        IF ROW IOLD IS IN SAME POSITIONS AFTER PERMUTATION GO TO ...
+         IF (IW(IOLD,1).EQ.0) GO TO 140
+         AVAL = A(I)
+C        **  CHAIN LOOP  **
+C        EACH PASS THROUGH THIS LOOP PLACES ONE (PERMUTED) COLUMN
+C        INDEX IN ITS FINAL POSITION  .. VIZ. IPOS.
+         DO 100 ICHAIN = 1, NZ
+C           NEWPOS IS THE ORIGINAL POSITION IN A/ICN OF THE ELEMENT
+C           TO BE PLACED IN POSITION IPOS.  IT IS ALSO THE POSITION
+C           OF THE NEXT ELEMENT INTHE CHAIN.
+            NEWPOS = IPOS + IW(IOLD,1)
+C           IS CHAIN COMPLETE ...
+            IF (NEWPOS.EQ.I) GO TO 120
+            A(IPOS) = A(NEWPOS)
+            JNUM = ICN(NEWPOS)
+            ICN(IPOS) = IW(JNUM,2)
+            IPOS = NEWPOS
+            IOLD = IW1(IPOS)
+            IW1(IPOS) = 0
+C           **  END OF CHAIN LOOP  **
+  100    CONTINUE
+  120    A(IPOS) = AVAL
+  140    ICN(IPOS) = IW(JVAL,2)
+C        ***  END OF MAIN LOOP   ***
+  160 CONTINUE
+C
+  180 RETURN
+      END
+      SUBROUTINE F01BRS(A,ICN,IPTR,N,IACTIV,ITOP,REALS,IUP)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA30D
+C
+C     COLLECTS GARBAGE IN ARRAYS, COMPRESSING THE USEFUL
+C     INFORMATION TO THE TOP END OF THE ARRAY AND FREEING THE
+C     EARLIER LOCATIONS FOR WORKSPACE OR SUBSEQUENT STORAGE.
+C
+C     IF REALS=TRUE, F01BRS MUST BE CALLED WITH ICNCP AS IUP.
+C     IF REALS=FALSE, F01BRS MUST BE CALLED WITH IRNCP AS IUP.
+C     IACTIV IS THE FIRST POSITION IN ARRAYS A/ICN FROM WHICH THE
+C     COMPRESS STARTS.
+C     ON EXIT IACTIV EQUALS THE POSITION OF THE FIRST ELEMENT IN
+C     THE COMPRESSED PART OF A/ICN
+C     .. Scalar Arguments ..
+      INTEGER           IACTIV, ITOP, IUP, N
+      LOGICAL           REALS
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(ITOP)
+      INTEGER           ICN(ITOP), IPTR(N)
+C     .. Local Scalars ..
+      INTEGER           J, JPOS, K, KL, KN
+C     .. Executable Statements ..
+      IUP = IUP + 1
+C     SET THE FIRST NON-ZERO ELEMENT IN EACH ROW TO THE NEGATIVE OF
+C     THE ROW/COL NUMBER AND HOLD THIS ROW/COL INDEX IN THE ROW/COL
+C     POINTER.  THIS IS SO THAT THE BEGINNING OF EACH ROW/COL CAN
+C     BE RECOGNIZED IN THE SUBSEQUENT SCAN.
+      DO 20 J = 1, N
+         K = IPTR(J)
+         IF (K.LT.IACTIV) GO TO 20
+         IPTR(J) = ICN(K)
+         ICN(K) = -J
+   20 CONTINUE
+      KN = ITOP + 1
+      KL = ITOP - IACTIV + 1
+C     GO THROUGH ARRAYS IN REVERSE ORDER COMPRESSING TO THE BACK SO
+C     THAT THERE ARE NO ZEROS HELD IN POSITIONS IACTIV TO ITOP IN
+C     ICN.
+C     RESET FIRST ELEMENT OF EACH ROW/COL AND POINTER ARRAY IPTR.
+      DO 60 K = 1, KL
+         JPOS = ITOP - K + 1
+         IF (ICN(JPOS).EQ.0) GO TO 60
+         KN = KN - 1
+         IF (REALS) A(KN) = A(JPOS)
+         IF (ICN(JPOS).GE.0) GO TO 40
+C        FIRST NON-ZERO OF ROW/COL HAS BEEN LOCATED
+         J = -ICN(JPOS)
+         ICN(JPOS) = IPTR(J)
+         IPTR(J) = KN
+   40    ICN(KN) = ICN(JPOS)
+   60 CONTINUE
+      IACTIV = KN
+      RETURN
+      END
+      SUBROUTINE F01BRT(NN,ICN,A,LICN,LENR,LENRL,IDISP,IP,IQ,IRN,LIRN,
+     *                  LENC,IFIRST,LASTR,NEXTR,LASTC,NEXTC,IPTR,IPC,U,
+     *                  ABORT,IFAIL)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA30A
+C
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  U
+      INTEGER           IFAIL, LICN, LIRN, NN
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN)
+      INTEGER           ICN(LICN), IDISP(7), IFIRST(NN), IP(NN),
+     *                  IPC(NN), IPTR(NN), IQ(NN), IRN(LIRN), LASTC(NN),
+     *                  LASTR(NN), LENC(NN), LENR(NN), LENRL(NN),
+     *                  NEXTC(NN), NEXTR(NN)
+      LOGICAL           ABORT(3)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  AMAX, AU, UMAX, ZERO
+      INTEGER           DISPC, I, I1, I2, IACTIV, IBEG, ICNCP, IDISPC,
+     *                  IDUMMY, IEND, IFILL, IFIR, II, III, IJFIR, IJP1,
+     *                  IJPOS, ILAST, INDROW, IOP, IPIV, IPOS, IRANK,
+     *                  IRNCP, IROWS, ISAVE, ISING, ISTART, ISW, ISW1,
+     *                  ITOP, J, J1, J2, JBEG, JCOST, JCOUNT, JDIFF,
+     *                  JEND, JJ, JMORE, JNPOS, JOLD, JPIV, JPOS, JROOM,
+     *                  JVAL, JZER, JZERO, K, KCOST, L, LC, LENPIV, LL,
+     *                  LR, MINICN, MINIRN, MOREI, N, NBLOCK, NC, NERR,
+     *                  NNM1, NR, NUM, NZ, NZ2, NZCOL, NZMIN, NZPC,
+     *                  NZROW, OLDEND, OLDPIV, PIVEND, PIVOT, PIVROW,
+     *                  ROWI
+C     .. Local Arrays ..
+      CHARACTER*65      REC(3)
+C     .. External Subroutines ..
+      EXTERNAL          F01BRS, X04AAF, X04BAF
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS, MAX, MIN, MOD
+C     .. Data statements ..
+      DATA              UMAX/.9999D0/
+      DATA              ZERO/0.0D0/
+C     .. Executable Statements ..
+      ISAVE = IFAIL
+      IFAIL = 0
+C     NERR IS THE UNIT NUMBER FOR ERROR MESSAGES
+      CALL X04AAF(0,NERR)
+      MINIRN = 0
+      MINICN = IDISP(1) - 1
+      MOREI = 0
+      IRANK = NN
+      IRNCP = 0
+      ICNCP = 0
+C     RESET U IF NECESSARY.
+      U = MIN(U,UMAX)
+C     IBEG IS THE POSITION OF THE NEXT PIVOT ROW AFTER ELIMINATION
+C     STEP USING IT.
+      U = MAX(U,ZERO)
+      IBEG = IDISP(1)
+C     IACTIV IS THE POSITION OF THE FIRST ENTRY IN THE ACTIVE PART
+C     OF A/ICN.
+      IACTIV = IDISP(2)
+C     NZROW IS CURRENT NUMBER OF NON-ZEROS IN ACTIVE AND UNPROCESSED
+C     PART OF ROW FILE ICN.
+      NZROW = LICN - IACTIV + 1
+      MINICN = NZROW + MINICN
+C
+C     COUNT THE NUMBER OF DIAGONAL BLOCKS AND SET UP POINTERS TO
+C     THE BEGINNINGS OF THE ROWS.
+C     NUM IS THE NUMBER OF DIAGONAL BLOCKS.
+      NUM = 1
+      IPTR(1) = IACTIV
+      IF (NN.EQ.1) GO TO 40
+      NNM1 = NN - 1
+      DO 20 I = 1, NNM1
+         IF (IP(I).LT.0) NUM = NUM + 1
+         IPTR(I+1) = IPTR(I) + LENR(I)
+   20 CONTINUE
+C     ILAST IS THE LAST ROW IN THE PREVIOUS BLOCK.
+   40 ILAST = 0
+C
+C     ***********************************************
+C     ****    LU DECOMPOSITION OF BLOCK NBLOCK   ****
+C     ***********************************************
+C
+C     EACH PASS THROUGH THIS LOOP PERFORMS LU DECOMPOSITION ON ONE
+C     OF THE DIAGONAL BLOCKS.
+      DO 1820 NBLOCK = 1, NUM
+         ISTART = ILAST + 1
+         DO 60 IROWS = ISTART, NN
+            IF (IP(IROWS).LT.0) GO TO 80
+   60    CONTINUE
+         IROWS = NN
+   80    ILAST = IROWS
+C        N IS THE NUMBER OF ROWS IN THE CURRENT BLOCK.
+C        ISTART IS THE INDEX OF THE FIRST ROW IN THE CURRENT BLOCK.
+C        ILAST IS THE INDEX OF THE LAST ROW IN THE CURRENT BLOCK.
+C        IACTIV IS THE POSITION OF THE FIRST ELEMENT IN THE BLOCK.
+C        ITOP IS THE POSITION OF THE LAST ELEMENT IN THE BLOCK.
+         N = ILAST - ISTART + 1
+         IF (N.NE.1) GO TO 160
+C
+C        CODE FOR DEALING WITH 1X1 BLOCK.
+         LENRL(ILAST) = 0
+         ISING = ISTART
+         IF (LENR(ILAST).NE.0) GO TO 100
+C        BLOCK IS STRUCTURALLY SINGULAR.
+         IRANK = IRANK - 1
+         ISING = -ISING
+         IF (IFAIL.NE.-2 .AND. IFAIL.NE.5) IFAIL = -1
+         IF ( .NOT. ABORT(1)) GO TO 140
+         IFAIL = 1
+         GO TO 2020
+  100    IF (A(IACTIV).NE.ZERO) GO TO 120
+C        BLOCK IS NUMERICALLY SINGULAR
+         ISING = -ISING
+         IRANK = IRANK - 1
+         IPTR(ILAST) = 0
+         IF (IFAIL.NE.5) IFAIL = -2
+         IF ( .NOT. ABORT(2)) GO TO 120
+         IFAIL = 2
+         GO TO 2020
+  120    A(IBEG) = A(IACTIV)
+         ICN(IBEG) = ICN(IACTIV)
+         IACTIV = IACTIV + 1
+         IPTR(ISTART) = 0
+         IBEG = IBEG + 1
+         NZROW = NZROW - 1
+  140    LASTR(ISTART) = ISTART
+         LASTC(ISTART) = ISING
+         GO TO 1820
+C
+C        NON-TRIVIAL BLOCK.
+  160    ITOP = LICN
+         IF (ILAST.NE.NN) ITOP = IPTR(ILAST+1) - 1
+C
+C        SET UP COLUMN ORIENTED STORAGE.
+         DO 180 I = ISTART, ILAST
+            LENRL(I) = 0
+            LENC(I) = 0
+  180    CONTINUE
+         IF (ITOP-IACTIV.LT.LIRN) GO TO 200
+         MINIRN = ITOP - IACTIV + 1
+         PIVOT = ISTART - 1
+         GO TO 1980
+C
+C        CALCULATE COLUMN COUNTS.
+  200    DO 220 II = IACTIV, ITOP
+            I = ICN(II)
+            LENC(I) = LENC(I) + 1
+  220    CONTINUE
+C        SET UP COLUMN POINTERS SO THAT IPC(J) POINTS TO POSITION
+C        AFTER END OF COLUMN J IN COLUMN FILE.
+         IPC(ILAST) = LIRN + 1
+         J1 = ISTART + 1
+         DO 240 JJ = J1, ILAST
+            J = ILAST - JJ + J1 - 1
+            IPC(J) = IPC(J+1) - LENC(J+1)
+  240    CONTINUE
+         DO 280 INDROW = ISTART, ILAST
+            J1 = IPTR(INDROW)
+            J2 = J1 + LENR(INDROW) - 1
+            IF (J1.GT.J2) GO TO 280
+            DO 260 JJ = J1, J2
+               J = ICN(JJ)
+               IPOS = IPC(J) - 1
+               IRN(IPOS) = INDROW
+               IPC(J) = IPOS
+  260       CONTINUE
+  280    CONTINUE
+C        DISPC IS THE LOWEST INDEXED ACTIVE LOCATION IN THE COLUMN
+C        FILE.
+         DISPC = IPC(ISTART)
+         NZCOL = LIRN - DISPC + 1
+         MINIRN = MAX(NZCOL,MINIRN)
+         NZMIN = 1
+C
+C        INITIALIZE ARRAY IFIRST.  IFIRST(I) = +/- K INDICATES THAT
+C        ROW/COL K HAS I NON-ZEROS.  IF IFIRST(I) = 0, THERE IS NO ROW
+C        OR COLUMN WITH I NON ZEROS.
+         DO 300 I = 1, N
+            IFIRST(I) = 0
+  300    CONTINUE
+C
+C        COMPUTE ORDERING OF ROW AND COLUMN COUNTS.
+C        FIRST RUN THROUGH COLUMNS (FROM COLUMN N TO COLUMN 1).
+         DO 340 JJ = ISTART, ILAST
+            J = ILAST - JJ + ISTART
+            NZ = LENC(J)
+            IF (NZ.NE.0) GO TO 320
+            IPC(J) = 0
+            LASTC(J) = 0
+            GO TO 340
+  320       ISW = IFIRST(NZ)
+            IFIRST(NZ) = -J
+            LASTC(J) = 0
+            NEXTC(J) = -ISW
+            ISW1 = ABS(ISW)
+            IF (ISW.NE.0) LASTC(ISW1) = J
+  340    CONTINUE
+C        NOW RUN THROUGH ROWS (AGAIN FROM N TO 1).
+         DO 400 II = ISTART, ILAST
+            I = ILAST - II + ISTART
+            NZ = LENR(I)
+            IF (NZ.NE.0) GO TO 360
+            IPTR(I) = 0
+            LASTR(I) = 0
+            GO TO 400
+  360       ISW = IFIRST(NZ)
+            IFIRST(NZ) = I
+            IF (ISW.GT.0) GO TO 380
+            NEXTR(I) = 0
+            LASTR(I) = ISW
+            GO TO 400
+  380       NEXTR(I) = ISW
+            LASTR(I) = LASTR(ISW)
+            LASTR(ISW) = I
+  400    CONTINUE
+C
+C        **********************************************
+C        ****    START OF MAIN ELIMINATION LOOP    ****
+C        **********************************************
+C
+         DO 1780 PIVOT = ISTART, ILAST
+C
+C           FIRST FIND THE PIVOT USING MARKOWITZ CRITERION WITH
+C           STABILITY CONTROL.
+C           JCOST IS THE MARKOWITZ COST OF THE BEST PIVOT SO FAR,.. THIS
+C           PIVOT IS IN ROW IPIV AND COLUMN JPIV.
+            NZ2 = NZMIN
+            JCOST = N*N
+C
+C           EXAMINE ROWS/COLUMNS IN ORDER OF ASCENDING COUNT.
+            DO 660 L = 1, 2
+               LL = L
+C              A PASS WITH L EQUAL TO 2 IS ONLY PERFORMED IN THE CASE OF
+C              SINGULARITY.
+               DO 640 NZ = NZ2, N
+                  IF (JCOST.LE.(NZ-1)**2) GO TO 820
+                  IJFIR = IFIRST(NZ)
+                  IF (IJFIR) 440, 420, 460
+  420             IF (LL.EQ.1) NZMIN = NZ + 1
+                  GO TO 640
+  440             LL = 2
+                  IJFIR = -IJFIR
+                  GO TO 560
+  460             LL = 2
+C                 SCAN ROWS WITH NZ NON-ZEROS.
+                  DO 520 IDUMMY = 1, N
+                     IF (IJFIR.EQ.0) GO TO 540
+C                    ROW IJFIR IS NOW EXAMINED.
+                     I = IJFIR
+                     IJFIR = NEXTR(I)
+C                    FIRST CALCULATE MULTIPLIER THRESHOLD LEVEL.
+                     AMAX = ZERO
+                     J1 = IPTR(I) + LENRL(I)
+                     J2 = IPTR(I) + LENR(I) - 1
+                     DO 480 JJ = J1, J2
+                        AMAX = MAX(AMAX,ABS(A(JJ)))
+  480                CONTINUE
+                     AU = AMAX*U
+C                    SCAN ROW FOR POSSIBLE PIVOTS
+                     DO 500 JJ = J1, J2
+                        IF (ABS(A(JJ)).LE.AU .AND. L.EQ.1) GO TO 500
+                        J = ICN(JJ)
+                        KCOST = (NZ-1)*(LENC(J)-1)
+                        IF (KCOST.GE.JCOST) GO TO 500
+C                       BEST PIVOT SO FAR IS FOUND.
+                        JCOST = KCOST
+                        IJPOS = JJ
+                        IPIV = I
+                        JPIV = J
+                        IF (JCOST.LE.(NZ-1)**2) GO TO 820
+  500                CONTINUE
+  520             CONTINUE
+C
+C                 COLUMNS WITH NZ NON-ZEROS NOW EXAMINED.
+  540             IJFIR = IFIRST(NZ)
+                  IJFIR = -LASTR(IJFIR)
+  560             IF (JCOST.LE.NZ*(NZ-1)) GO TO 820
+                  DO 620 IDUMMY = 1, N
+                     IF (IJFIR.EQ.0) GO TO 640
+                     J = IJFIR
+                     IJFIR = NEXTC(IJFIR)
+                     I1 = IPC(J)
+                     I2 = I1 + NZ - 1
+C                    SCAN COLUMN J.
+                     DO 600 II = I1, I2
+                        I = IRN(II)
+                        KCOST = (NZ-1)*(LENR(I)-LENRL(I)-1)
+                        IF (KCOST.GE.JCOST) GO TO 600
+C                       PIVOT HAS BEST MARKOWITZ COUNT SO FAR ...
+C                       NOW CHECK ITS SUITABILITY ON NUMERIC GROUNDS
+C                       BY EXAMINING THE OTHER NON-ZEROS IN ITS ROW.
+                        J1 = IPTR(I) + LENRL(I)
+                        J2 = IPTR(I) + LENR(I) - 1
+C                       WE NEED A STABILITY CHECK ON SINGLETON COLUMNS
+C                       BECAUSE OF POSSIBLE PROBLEMS WITH
+C                       UNDERDETERMINED SYSTEMS.
+                        AMAX = ZERO
+                        DO 580 JJ = J1, J2
+                           AMAX = MAX(AMAX,ABS(A(JJ)))
+                           IF (ICN(JJ).EQ.J) JPOS = JJ
+  580                   CONTINUE
+                        IF (ABS(A(JPOS)).LE.AMAX*U .AND. L.EQ.1)
+     *                      GO TO 600
+                        JCOST = KCOST
+                        IPIV = I
+                        JPIV = J
+                        IJPOS = JPOS
+                        IF (JCOST.LE.NZ*(NZ-1)) GO TO 820
+  600                CONTINUE
+  620             CONTINUE
+  640          CONTINUE
+C
+C              MATRIX IS NUMERICALLY OR STRUCTURALLY SINGULAR  ...
+C              WHICH IT IS WILL BE DIAGNOSED LATER.
+               IRANK = IRANK - 1
+  660       CONTINUE
+C           ASSIGN REST OF ROWS AND COLUMNS TO ORDERING ARRAY.
+C           MATRIX IS STRUCTURALLY SINGULAR.
+            IF (IFAIL.NE.-2 .AND. IFAIL.NE.5) IFAIL = -1
+            IRANK = IRANK - ILAST + PIVOT + 1
+            IF ( .NOT. ABORT(1)) GO TO 680
+            IFAIL = 1
+            GO TO 2020
+  680       K = PIVOT - 1
+            DO 760 I = ISTART, ILAST
+               IF (LASTR(I).NE.0) GO TO 760
+               K = K + 1
+               LASTR(I) = K
+               IF (LENRL(I).EQ.0) GO TO 740
+               MINICN = MAX(MINICN,NZROW+IBEG-1+MOREI+LENRL(I))
+               IF (IACTIV-IBEG.GE.LENRL(I)) GO TO 700
+               CALL F01BRS(A,ICN,IPTR(ISTART)
+     *                     ,N,IACTIV,ITOP,.TRUE.,ICNCP)
+C              CHECK NOW TO SEE IF F01BRS HAS CREATED ENOUGH AVAILABLE
+C              SPACE.
+               IF (IACTIV-IBEG.GE.LENRL(I)) GO TO 700
+C              CREATE MORE SPACE BY DESTROYING PREVIOUSLY CREATED LU
+C              FACTORS.
+               MOREI = MOREI + IBEG - IDISP(1)
+               IBEG = IDISP(1)
+               IFAIL = 5
+               IF (ABORT(3)) GO TO 2020
+C              ** CODE FOR OUTPUT OF ERROR MESSAGE **
+               IF (MOD(ISAVE/10,10).NE.0) THEN
+                  WRITE (REC,FMT=99997)
+                  CALL X04BAF(NERR,REC(1))
+                  CALL X04BAF(NERR,REC(2))
+               END IF
+C              ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+  700          J1 = IPTR(I)
+               J2 = J1 + LENRL(I) - 1
+               IPTR(I) = 0
+               DO 720 JJ = J1, J2
+                  A(IBEG) = A(JJ)
+                  ICN(IBEG) = ICN(JJ)
+                  ICN(JJ) = 0
+                  IBEG = IBEG + 1
+  720          CONTINUE
+               NZROW = NZROW - LENRL(I)
+  740          IF (K.EQ.ILAST) GO TO 780
+  760       CONTINUE
+  780       K = PIVOT - 1
+            DO 800 I = ISTART, ILAST
+               IF (LASTC(I).NE.0) GO TO 800
+               K = K + 1
+               LASTC(I) = -K
+               IF (K.EQ.ILAST) GO TO 1800
+  800       CONTINUE
+C
+C           THE PIVOT HAS NOW BEEN FOUND IN POSITION (IPIV,JPIV) IN
+C           LOCATION IJPOS IN ROW FILE.
+C           UPDATE COLUMN AND ROW ORDERING ARRAYS TO CORRESPOND WITH
+C           REMOVAL OF THE ACTIVE PART OF THE MATRIX.
+  820       ISING = PIVOT
+            IF (A(IJPOS).NE.ZERO) GO TO 840
+C           NUMERICAL SINGULARITY IS RECORDED HERE.
+            ISING = -ISING
+            IF (IFAIL.NE.5) IFAIL = -2
+            IF ( .NOT. ABORT(2)) GO TO 840
+            IFAIL = 2
+            GO TO 2020
+  840       OLDPIV = IPTR(IPIV) + LENRL(IPIV)
+            OLDEND = IPTR(IPIV) + LENR(IPIV) - 1
+C           CHANGES TO COLUMN ORDERING.
+            DO 880 JJ = OLDPIV, OLDEND
+               J = ICN(JJ)
+               LC = LASTC(J)
+               NC = NEXTC(J)
+               IF (NC.NE.0) LASTC(NC) = LC
+               IF (LC.EQ.0) GO TO 860
+               NEXTC(LC) = NC
+               GO TO 880
+  860          NZ = LENC(J)
+               ISW = IFIRST(NZ)
+               IF (ISW.GT.0) LASTR(ISW) = -NC
+               IF (ISW.LT.0) IFIRST(NZ) = -NC
+  880       CONTINUE
+C           CHANGES TO ROW ORDERING.
+            I1 = IPC(JPIV)
+            I2 = I1 + LENC(JPIV) - 1
+            DO 920 II = I1, I2
+               I = IRN(II)
+               LR = LASTR(I)
+               NR = NEXTR(I)
+               IF (NR.NE.0) LASTR(NR) = LR
+               IF (LR.LE.0) GO TO 900
+               NEXTR(LR) = NR
+               GO TO 920
+  900          NZ = LENR(I) - LENRL(I)
+               IF (NR.NE.0) IFIRST(NZ) = NR
+               IF (NR.EQ.0) IFIRST(NZ) = LR
+  920       CONTINUE
+C           RECORD THE COLUMN PERMUTATION IN LASTC(JPIV) AND THE ROW
+C           PERMUTATION IN LASTR(IPIV).
+            LASTC(JPIV) = ISING
+            LASTR(IPIV) = PIVOT
+C
+C           MOVE PIVOT TO POSITION LENRL+1 IN PIVOT ROW AND MOVE PIVOT
+C           ROW TO THE BEGINNING OF THE AVAILABLE STORAGE.
+C           THE L PART AND THE PIVOT IN THE OLD COPY OF THE PIVOT ROW IS
+C           NULLIFIED WHILE, IN THE STRICTLY UPPER TRIANGULAR PART, THE
+C           COLUMN INDICES, J SAY, ARE OVERWRITTEN BY THE CORRESPONDING
+C           ELEMENT OF IQ (IQ(J)) AND IQ(J) IS SET TO THE NEGATIVE OF
+C           THE DISPLACEMENT OF THE COLUMN INDEX FROM THE PIVOT ELEMENT.
+            IF (OLDPIV.EQ.IJPOS) GO TO 940
+            AU = A(OLDPIV)
+            A(OLDPIV) = A(IJPOS)
+            A(IJPOS) = AU
+            ICN(IJPOS) = ICN(OLDPIV)
+            ICN(OLDPIV) = JPIV
+C           CHECK TO SEE IF THERE IS SPACE IMMEDIATELY AVAILABLE IN
+C           A/ICN TO HOLD NEW COPY OF PIVOT ROW.
+  940       MINICN = MAX(MINICN,NZROW+IBEG-1+MOREI+LENR(IPIV))
+            IF (IACTIV-IBEG.GE.LENR(IPIV)) GO TO 960
+            CALL F01BRS(A,ICN,IPTR(ISTART),N,IACTIV,ITOP,.TRUE.,ICNCP)
+            OLDPIV = IPTR(IPIV) + LENRL(IPIV)
+            OLDEND = IPTR(IPIV) + LENR(IPIV) - 1
+C           CHECK NOW TO SEE IF F01BRS HAS CREATED ENOUGH AVAILABLE
+C           SPACE.
+            IF (IACTIV-IBEG.GE.LENR(IPIV)) GO TO 960
+C           CREATE MORE SPACE BY DESTROYING PREVIOUSLY CREATED LU
+C           FACTORS.
+            MOREI = MOREI + IBEG - IDISP(1)
+            IBEG = IDISP(1)
+            IFAIL = 5
+            IF (ABORT(3)) GO TO 2020
+C           ** CODE FOR OUTPUT OF ERROR MESSAGE **
+            IF (MOD(ISAVE/10,10).NE.0) THEN
+               WRITE (REC,FMT=99997)
+               CALL X04BAF(NERR,REC(1))
+               CALL X04BAF(NERR,REC(2))
+            END IF
+C           ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+            IF (IACTIV-IBEG.GE.LENR(IPIV)) GO TO 960
+C           THERE IS STILL NOT ENOUGH ROOM IN A/ICN.
+            IFAIL = 4
+            GO TO 2020
+C           COPY PIVOT ROW AND SET UP IQ ARRAY.
+  960       IJPOS = 0
+            J1 = IPTR(IPIV)
+C
+            DO 1020 JJ = J1, OLDEND
+               A(IBEG) = A(JJ)
+               ICN(IBEG) = ICN(JJ)
+               IF (IJPOS.NE.0) GO TO 980
+               IF (ICN(JJ).EQ.JPIV) IJPOS = IBEG
+               ICN(JJ) = 0
+               GO TO 1000
+  980          K = IBEG - IJPOS
+               J = ICN(JJ)
+               ICN(JJ) = IQ(J)
+               IQ(J) = -K
+ 1000          IBEG = IBEG + 1
+ 1020       CONTINUE
+C
+            IJP1 = IJPOS + 1
+            PIVEND = IBEG - 1
+            LENPIV = PIVEND - IJPOS
+            NZROW = NZROW - LENRL(IPIV) - 1
+            IPTR(IPIV) = OLDPIV + 1
+            IF (LENPIV.EQ.0) IPTR(IPIV) = 0
+C
+C           REMOVE PIVOT ROW (INCLUDING PIVOT) FROM COLUMN
+C           ORIENTED FILE.
+            DO 1080 JJ = IJPOS, PIVEND
+               J = ICN(JJ)
+               I1 = IPC(J)
+               LENC(J) = LENC(J) - 1
+C              I2 IS LAST POSITION IN NEW COLUMN.
+               I2 = IPC(J) + LENC(J) - 1
+               IF (I2.LT.I1) GO TO 1060
+               DO 1040 II = I1, I2
+                  IF (IRN(II).NE.IPIV) GO TO 1040
+                  IRN(II) = IRN(I2+1)
+                  GO TO 1060
+ 1040          CONTINUE
+ 1060          IRN(I2+1) = 0
+ 1080       CONTINUE
+            NZCOL = NZCOL - LENPIV - 1
+C
+C           GO DOWN THE PIVOT COLUMN AND FOR EACH ROW WITH A NON-ZERO
+C           ADD THE APPROPRIATE MULTIPLE OF THE PIVOT ROW TO IT.
+C           WE LOOP ON THE NUMBER OF NON-ZEROS IN THE PIVOT COLUMN SINCE
+C           F01BRS MAY CHANGE ITS ACTUAL POSITION.
+C
+            NZPC = LENC(JPIV)
+            IF (NZPC.EQ.0) GO TO 1640
+            DO 1520 III = 1, NZPC
+               II = IPC(JPIV) + III - 1
+               I = IRN(II)
+C              SEARCH ROW I FOR NON-ZERO TO BE ELIMINATED, CALCULATE
+C              MULTIPLIER, AND PLACE IT IN POSITION LENRL+1 IN ITS ROW.
+               J1 = IPTR(I) + LENRL(I)
+               IEND = IPTR(I) + LENR(I) - 1
+               DO 1100 JJ = J1, IEND
+                  IF (ICN(JJ).NE.JPIV) GO TO 1100
+C                 IF PIVOT IS ZERO, REST OF COLUMN IS AND SO MULTIPLIER
+C                 IS ZERO.
+                  AU = ZERO
+                  IF (A(IJPOS).NE.ZERO) AU = -A(JJ)/A(IJPOS)
+                  A(JJ) = A(J1)
+                  A(J1) = AU
+                  ICN(JJ) = ICN(J1)
+                  ICN(J1) = JPIV
+                  LENRL(I) = LENRL(I) + 1
+                  GO TO 1120
+ 1100          CONTINUE
+C              IF PIVOT ROW IS A SINGLETON, GO TO ...
+ 1120          IF (LENPIV.EQ.0) GO TO 1520
+C              NOW PERFORM NECESSARY OPERATIONS ON REST OF NON-PIVOT
+C              ROW I.
+               ROWI = J1 + 1
+               IOP = 0
+C              IF ALL THE PIVOT ROW CAUSES FILL-IN GO TO 640
+               IF (ROWI.GT.IEND) GO TO 1160
+C              PERFORM OPERATIONS ON CURRENT NON-ZEROS IN ROW I.
+C              INNERMOST LOOP.
+               DO 1140 JJ = ROWI, IEND
+                  J = ICN(JJ)
+                  IF (IQ(J).GT.0) GO TO 1140
+                  IOP = IOP + 1
+                  PIVROW = IJPOS - IQ(J)
+                  A(JJ) = A(JJ) + AU*A(PIVROW)
+                  ICN(PIVROW) = -ICN(PIVROW)
+ 1140          CONTINUE
+ 1160          IFILL = LENPIV - IOP
+C              IF THERE IS NO FILL-IN GO TO 740.
+               IF (IFILL.EQ.0) GO TO 1360
+C              NOW FOR THE FILL-IN.
+               MINICN = MAX(MINICN,MOREI+IBEG-1+NZROW+IFILL+LENR(I))
+C              SEE IF THERE IS ROOM FOR FILL-IN.
+C              GET MAXIMUM SPACE FOR ROW I IN SITU.
+               DO 1180 JDIFF = 1, IFILL
+                  JNPOS = IEND + JDIFF
+                  IF (JNPOS.GT.LICN) GO TO 1200
+                  IF (ICN(JNPOS).NE.0) GO TO 1200
+ 1180          CONTINUE
+C              THERE IS ROOM FOR ALL THE FILL-IN AFTER THE END OF
+C              THE ROW SO IT CAN BE LEFT IN SITU.
+C              NEXT AVAILABLE SPACE FOR FILL-IN.
+               IEND = IEND + 1
+               GO TO 1360
+C              JMORE SPACES FOR FILL-IN ARE REQUIRED IN FRONT OF ROW.
+ 1200          JMORE = IFILL - JDIFF + 1
+               I1 = IPTR(I)
+C              WE NOW LOOK IN FRONT OF THE ROW TO SEE IF THERE IS
+C              SPACE FOR THE REST OF THE FILL-IN.
+               DO 1220 JDIFF = 1, JMORE
+                  JNPOS = I1 - JDIFF
+                  IF (JNPOS.LT.IACTIV) GO TO 1240
+                  IF (ICN(JNPOS).NE.0) GO TO 1260
+ 1220          CONTINUE
+ 1240          JNPOS = I1 - JMORE
+               GO TO 1280
+C              WHOLE ROW MUST BE MOVED TO THE BEGINNING OF AVAILABLE
+C              STORAGE.
+ 1260          JNPOS = IACTIV - LENR(I) - IFILL
+C              IF THERE IS SPACE IMMEDIATELY AVAILABLE FOR THE SHIFTED
+C              ROW GO TO ...
+ 1280          IF (JNPOS.GE.IBEG) GO TO 1320
+               CALL F01BRS(A,ICN,IPTR(ISTART)
+     *                     ,N,IACTIV,ITOP,.TRUE.,ICNCP)
+               I1 = IPTR(I)
+               IEND = I1 + LENR(I) - 1
+               JNPOS = IACTIV - LENR(I) - IFILL
+               IF (JNPOS.GE.IBEG) GO TO 1320
+C              NO SPACE AVAILABLE SO TRY TO CREATE SOME BY THROWING AWAY
+C              PREVIOUS LU DECOMPOSITION.
+               MOREI = MOREI + IBEG - IDISP(1) - LENPIV - 1
+               IFAIL = 5
+               IF (ABORT(3)) GO TO 2020
+C              ** CODE FOR OUTPUT OF ERROR MESSAGE **
+               IF (MOD(ISAVE/10,10).NE.0) THEN
+                  WRITE (REC,FMT=99997)
+                  CALL X04BAF(NERR,REC(1))
+                  CALL X04BAF(NERR,REC(2))
+               END IF
+C              ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+C              KEEP RECORD OF CURRENT PIVOT ROW.
+               IBEG = IDISP(1)
+               ICN(IBEG) = JPIV
+               A(IBEG) = A(IJPOS)
+               IJPOS = IBEG
+               DO 1300 JJ = IJP1, PIVEND
+                  IBEG = IBEG + 1
+                  A(IBEG) = A(JJ)
+                  ICN(IBEG) = ICN(JJ)
+ 1300          CONTINUE
+               IJP1 = IJPOS + 1
+               PIVEND = IBEG
+               IBEG = IBEG + 1
+               IF (JNPOS.GE.IBEG) GO TO 1320
+C              THIS STILL DOES NOT GIVE ENOUGH ROOM.
+               IFAIL = 4
+               GO TO 2020
+ 1320          IACTIV = MIN(IACTIV,JNPOS)
+C              MOVE NON-PIVOT ROW I.
+               IPTR(I) = JNPOS
+               DO 1340 JJ = I1, IEND
+                  A(JNPOS) = A(JJ)
+                  ICN(JNPOS) = ICN(JJ)
+                  JNPOS = JNPOS + 1
+                  ICN(JJ) = 0
+ 1340          CONTINUE
+C              FIRST NEW AVAILABLE SPACE.
+               IEND = JNPOS
+ 1360          NZROW = NZROW + IFILL
+C              INNERMOST FILL-IN LOOP WHICH ALSO RESETS ICN.
+               DO 1500 JJ = IJP1, PIVEND
+                  J = ICN(JJ)
+                  IF (J.LT.0) GO TO 1480
+                  A(IEND) = AU*A(JJ)
+                  ICN(IEND) = J
+                  IEND = IEND + 1
+C
+C                 PUT NEW ENTRY IN COLUMN FILE.
+                  MINIRN = MAX(MINIRN,NZCOL+LENC(J)+1)
+                  JEND = IPC(J) + LENC(J)
+                  JROOM = NZPC - III + 1 + LENC(J)
+                  IF (JEND.GT.LIRN) GO TO 1380
+                  IF (IRN(JEND).EQ.0) GO TO 1460
+ 1380             IF (JROOM.LT.DISPC) GO TO 1400
+C                 COMPRESS COLUMN FILE TO OBTAIN SPACE FOR NEW
+C                 COPY OF COLUMN.
+                  CALL F01BRS(A,IRN,IPC(ISTART)
+     *                        ,N,DISPC,LIRN,.FALSE.,IRNCP)
+                  IF (JROOM.LT.DISPC) GO TO 1400
+                  JROOM = DISPC - 1
+                  IF (JROOM.GE.LENC(J)+1) GO TO 1400
+C                 COLUMN FILE IS NOT LARGE ENOUGH.
+                  GO TO 1980
+C                 COPY COLUMN TO BEGINNING OF FILE.
+ 1400             JBEG = IPC(J)
+                  JEND = IPC(J) + LENC(J) - 1
+                  JZERO = DISPC - 1
+                  DISPC = DISPC - JROOM
+                  IDISPC = DISPC
+                  DO 1420 II = JBEG, JEND
+                     IRN(IDISPC) = IRN(II)
+                     IRN(II) = 0
+                     IDISPC = IDISPC + 1
+ 1420             CONTINUE
+                  IPC(J) = DISPC
+                  JEND = IDISPC
+                  DO 1440 II = JEND, JZERO
+                     IRN(II) = 0
+ 1440             CONTINUE
+ 1460             IRN(JEND) = I
+                  NZCOL = NZCOL + 1
+                  LENC(J) = LENC(J) + 1
+C                 END OF ADJUSTMENT TO COLUMN FILE.
+                  GO TO 1500
+C
+ 1480             ICN(JJ) = -J
+ 1500          CONTINUE
+               LENR(I) = LENR(I) + IFILL
+C              END OF SCAN OF PIVOT COLUMN.
+ 1520       CONTINUE
+C
+C           REMOVE PIVOT COLUMN FROM COLUMN ORIENTED STORAGE AND UPDATE
+C           ROW ORDERING ARRAYS.
+            I1 = IPC(JPIV)
+            I2 = IPC(JPIV) + LENC(JPIV) - 1
+            NZCOL = NZCOL - LENC(JPIV)
+            DO 1620 II = I1, I2
+               I = IRN(II)
+               IRN(II) = 0
+               NZ = LENR(I) - LENRL(I)
+               IF (NZ.NE.0) GO TO 1540
+               LASTR(I) = 0
+               GO TO 1620
+ 1540          IFIR = IFIRST(NZ)
+               IFIRST(NZ) = I
+               IF (IFIR) 1560, 1600, 1580
+ 1560          LASTR(I) = IFIR
+               NEXTR(I) = 0
+               GO TO 1620
+ 1580          LASTR(I) = LASTR(IFIR)
+               NEXTR(I) = IFIR
+               LASTR(IFIR) = I
+               GO TO 1620
+ 1600          LASTR(I) = 0
+               NEXTR(I) = 0
+               NZMIN = MIN(NZMIN,NZ)
+ 1620       CONTINUE
+C           RESTORE IQ AND NULLIFY U PART OF OLD PIVOT ROW.
+ 1640       IPC(JPIV) = 0
+            IF (LENPIV.EQ.0) GO TO 1780
+            NZROW = NZROW - LENPIV
+            JVAL = IJP1
+            JZER = IPTR(IPIV)
+            IPTR(IPIV) = 0
+            DO 1660 JCOUNT = 1, LENPIV
+               J = ICN(JVAL)
+               IQ(J) = ICN(JZER)
+               ICN(JZER) = 0
+               JVAL = JVAL + 1
+               JZER = JZER + 1
+ 1660       CONTINUE
+C           ADJUST COLUMN ORDERING ARRAYS.
+            DO 1760 JJ = IJP1, PIVEND
+               J = ICN(JJ)
+               NZ = LENC(J)
+               IF (NZ.NE.0) GO TO 1680
+               LASTC(J) = 0
+               GO TO 1760
+ 1680          IFIR = IFIRST(NZ)
+               LASTC(J) = 0
+               IF (IFIR) 1700, 1720, 1740
+ 1700          IFIRST(NZ) = -J
+               IFIR = -IFIR
+               LASTC(IFIR) = J
+               NEXTC(J) = IFIR
+               GO TO 1760
+ 1720          IFIRST(NZ) = -J
+               NEXTC(J) = 0
+               NZMIN = MIN(NZMIN,NZ)
+               GO TO 1760
+ 1740          LC = -LASTR(IFIR)
+               LASTR(IFIR) = -J
+               NEXTC(J) = LC
+               IF (LC.NE.0) LASTC(LC) = J
+ 1760       CONTINUE
+ 1780    CONTINUE
+C
+C        ********************************************
+C        ****    END OF MAIN ELIMINATION LOOP    ****
+C        ********************************************
+C
+C        RESET IACTIV TO POINT TO THE BEGINNING OF THE NEXT BLOCK.
+ 1800    IF (ILAST.NE.NN) IACTIV = IPTR(ILAST+1)
+ 1820 CONTINUE
+C
+C     ********************************************
+C     ****    END OF DECOMPOSITION OF BLOCK    ***
+C     ********************************************
+C
+C     RECORD SINGULARITY (IF ANY) IN IQ ARRAY.
+      IF (IRANK.EQ.NN) GO TO 1860
+      DO 1840 I = 1, NN
+         IF (LASTC(I).GT.0) GO TO 1840
+         ISING = -LASTC(I)
+         IQ(ISING) = -IQ(ISING)
+         LASTC(I) = ISING
+ 1840 CONTINUE
+C
+C     RUN THROUGH LU DECOMPOSITION CHANGING COLUMN INDICES TO THAT
+C     OF NEW ORDER AND PERMUTING LENR AND LENRL ARRAYS ACCORDING TO
+C     PIVOT PERMUTATIONS.
+ 1860 ISTART = IDISP(1)
+      IEND = IBEG - 1
+      DO 1880 JJ = ISTART, IEND
+         JOLD = ICN(JJ)
+         ICN(JJ) = LASTC(JOLD)
+ 1880 CONTINUE
+      DO 1900 II = 1, NN
+         I = LASTR(II)
+         NEXTR(I) = LENR(II)
+         NEXTC(I) = LENRL(II)
+ 1900 CONTINUE
+      DO 1920 I = 1, NN
+         LENRL(I) = NEXTC(I)
+         LENR(I) = NEXTR(I)
+ 1920 CONTINUE
+C
+C     UPDATE PERMUTATION ARRAYS IP AND IQ.
+      DO 1940 II = 1, NN
+         I = LASTR(II)
+         J = LASTC(II)
+         NEXTR(I) = ABS(IP(II))
+         NEXTC(J) = ABS(IQ(II))
+ 1940 CONTINUE
+      DO 1960 I = 1, NN
+         IF (IP(I).LT.0) NEXTR(I) = -NEXTR(I)
+         IP(I) = NEXTR(I)
+         IF (IQ(I).LT.0) NEXTC(I) = -NEXTC(I)
+         IQ(I) = NEXTC(I)
+ 1960 CONTINUE
+      IP(NN) = ABS(IP(NN))
+      IDISP(2) = IEND
+      IF (IFAIL.NE.5) GO TO 2060
+C     ** CODE FOR OUTPUT OF ERROR MESSAGE **************************
+      IF (MOD(ISAVE/10,10).NE.0) THEN
+         WRITE (REC,FMT=99991) MINICN
+         CALL X04BAF(NERR,REC(1))
+         CALL X04BAF(NERR,REC(2))
+         CALL X04BAF(NERR,REC(3))
+      END IF
+C     ** END OF CODE FOR OUTPUT OF ERROR MESSAGE *******************
+      GO TO 2060
+C
+C     ***    ERROR RETURNS    ***
+C     LIRN TOO SMALL - IFAIL = 3 OR 6
+ 1980 IF (IFAIL.EQ.5) GO TO 2000
+      IFAIL = 3
+      GO TO 2020
+ 2000 IFAIL = 6
+C
+ 2020 CONTINUE
+C     ** CODE FOR OUTPUT OF ERROR MESSAGES *************************
+      IF (MOD(ISAVE/10,10).EQ.0) GO TO 2040
+      IF (IFAIL.EQ.1) WRITE (REC,FMT=99999)
+      IF (IFAIL.EQ.2) WRITE (REC,FMT=99998)
+      IF (IFAIL.EQ.3) WRITE (REC,FMT=99996)
+      IF (IFAIL.EQ.4) WRITE (REC,FMT=99995)
+      IF (IFAIL.EQ.5) WRITE (REC,FMT=99994)
+      IF (IFAIL.EQ.6) WRITE (REC,FMT=99993)
+      IF (IFAIL.GE.1 .AND. IFAIL.LE.6) THEN
+         CALL X04BAF(NERR,REC(1))
+         CALL X04BAF(NERR,REC(2))
+      END IF
+      IF (IFAIL.LE.2) GO TO 2040
+      PIVOT = PIVOT - ISTART + 1
+      WRITE (REC,FMT=99992) PIVOT, NBLOCK, ISTART, ILAST
+      CALL X04BAF(NERR,REC(1))
+      CALL X04BAF(NERR,REC(2))
+      IF (PIVOT.EQ.0) THEN
+         WRITE (REC,FMT=99990) MINIRN
+         CALL X04BAF(NERR,REC(1))
+      END IF
+C     ** END OF CODE FOR OUTPUT OF ERROR MESSAGES ******************
+ 2040 IDISP(2) = IACTIV
+C
+ 2060 IDISP(3) = IRNCP
+      IDISP(4) = ICNCP
+      IDISP(5) = IRANK
+      IDISP(6) = MINIRN
+      IDISP(7) = MINICN
+      RETURN
+C
+99999 FORMAT (/' MATRIX IS STRUCTURALLY SINGULAR - DECOMPOSITION ABORT',
+     *  'ED')
+99998 FORMAT (/' MATRIX IS NUMERICALLY SINGULAR - DECOMPOSITION ABORTED'
+     *  )
+99997 FORMAT (/' LU DECOMPOSITION DESTROYED TO CREATE MORE SPACE')
+99996 FORMAT (/' LIRN TOO SMALL -')
+99995 FORMAT (/' LICN MUCH TOO SMALL -')
+99994 FORMAT (/' LICN TOO SMALL -')
+99993 FORMAT (/' LICN AND LIRN TOO SMALL -')
+99992 FORMAT ('  DECOMPOSITION ABORTED AT STAGE ',I5,' IN BLOCK ',I5,
+     *  /'  WITH FIRST ROW ',I5,' AND LAST ROW ',I5)
+99991 FORMAT (/' LICN TOO SMALL -',/'  FOR SUCCESSFUL DECOMPOSITION SE',
+     *  'T LICN TO AT LEAST ',I8)
+99990 FORMAT ('  TO CONTINUE SET LIRN TO AT LEAST ',I8)
+      END
+      SUBROUTINE F01BRU(N,ICN,LICN,IP,LENR,ARP,IB,NUM,LOWL,NUMB,PREV)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC13E
+C
+C     FINDS A SYMMETRIC PERMUTATION WHICH PERMUTES A SPARSE MATRIX
+C     TO BLOCK LOWER TRIANGULAR FORM, GIVEN THE COLUMN NUMBERS OF
+C     THE NON-ZEROS IN EACH ROW OF THE MATRIX.
+C
+C     ARP(I) IS ONE LESS THAN THE NUMBER OF UNSEARCHED EDGES
+C     .     LEAVING NODE I.  AT THE END OF THE ALGORITHM IT IS SET
+C     .     TO A PERMUTATION WHICH PUTS THE MATRIX IN BLOCK LOWER
+C     .     TRIANGULAR FORM.
+C     IB(I) IS THE POSITION IN THE ORDERING OF THE START OF THE ITH
+C     .     BLOCK.  IB(N+1-I) HOLDS THE NODE NUMBER OF THE ITH NODE
+C     .     ON THE STACK.
+C     LOWL(I) IS THE SMALLEST STACK POSITION OF ANY NODE TO WHICH A
+C     .     PATH FROM  HAS BEEN FOUND.  IT IS SET TO N+1 WHEN NODE I
+C     .     IS REMOVED FROM THE STACK.
+C     NUMB(I) IS THE POSITION OF NODE I IN THE STACK IF IT IS ON
+C     .     IT, IS THE PERMUTED ORDER OF NODE I FOR THOSE NODES
+C     .     WHOSE FINAL POSITION HAS BEEN FOUND AND IS OTHERWISE
+C     .     ZERO.
+C     PREV(I) IS THE NODE AT THE END OF THE PATH WHEN NODE I WAS
+C     .     PLACED ON THE STACK.
+C
+C
+C     ICNT IS THE NUMBER OF NODES WHOSE POSITIONS IN FINAL ORDERING
+C     HAVE BEEN FOUND.
+C     .. Scalar Arguments ..
+      INTEGER           LICN, N, NUM
+C     .. Array Arguments ..
+      INTEGER           ARP(N), IB(N), ICN(LICN), IP(N), LENR(N),
+     *                  LOWL(N), NUMB(N), PREV(N)
+C     .. Local Scalars ..
+      INTEGER           DUMMY, I, I1, I2, ICNT, II, ISN, IST, IST1, IV,
+     *                  IW, J, K, LCNT, NNM1, STP
+C     .. Intrinsic Functions ..
+      INTRINSIC         MIN
+C     .. Executable Statements ..
+      ICNT = 0
+C     NUM IS THE NUMBER OF BLOCKS THAT HAVE BEEN FOUND.
+      NUM = 0
+      NNM1 = N + N - 1
+C
+C     INITIALIZATION OF ARRAYS.
+      DO 20 J = 1, N
+         NUMB(J) = 0
+         ARP(J) = LENR(J) - 1
+   20 CONTINUE
+C
+      DO 180 ISN = 1, N
+C        LOOK FOR A STARTING NODE
+         IF (NUMB(ISN).NE.0) GO TO 180
+         IV = ISN
+C        IST IS THE NUMBER OF NODES ON THE STACK ... IT IS THE STACK
+C        POINTER.
+         IST = 1
+C        PUT NODE IV AT BEGINNING OF STACK.
+         LOWL(IV) = 1
+         NUMB(IV) = 1
+         IB(N) = IV
+C
+C        THE BODY OF THIS LOOP PUTS A NEW NODE ON THE STACK OR
+C        BACKTRACKS.
+         DO 160 DUMMY = 1, NNM1
+            I1 = ARP(IV)
+C           HAVE ALL EDGES LEAVING NODE IV BEEN SEARCHED.
+            IF (I1.LT.0) GO TO 60
+            I2 = IP(IV) + LENR(IV) - 1
+            I1 = I2 - I1
+C
+C           LOOK AT EDGES LEAVING NODE IV UNTIL ONE ENTERS A NEW NODE OR
+C           ALL EDGES ARE EXHAUSTED.
+            DO 40 II = I1, I2
+               IW = ICN(II)
+C              HAS NODE IW BEEN ON STACK ALREADY.
+               IF (NUMB(IW).EQ.0) GO TO 140
+C              UPDATE VALUE OF LOWL(IV) IF NECESSARY.
+               LOWL(IV) = MIN(LOWL(IV),LOWL(IW))
+   40       CONTINUE
+C
+C           THERE ARE NO MORE EDGES LEAVING NODE IV.
+            ARP(IV) = -1
+C           IS NODE IV THE ROOT OF A BLOCK.
+   60       IF (LOWL(IV).LT.NUMB(IV)) GO TO 120
+C
+C           ORDER NODES IN A BLOCK.
+            NUM = NUM + 1
+            IST1 = N + 1 - IST
+            LCNT = ICNT + 1
+C           PEEL BLOCK OFF THE TOP OF THE STACK STARTING AT THE TOP AND
+C           WORKING DOWN TO THE ROOT OF THE BLOCK.
+            DO 80 STP = IST1, N
+               IW = IB(STP)
+               LOWL(IW) = N + 1
+               ICNT = ICNT + 1
+               NUMB(IW) = ICNT
+               IF (IW.EQ.IV) GO TO 100
+   80       CONTINUE
+  100       IST = N - STP
+            IB(NUM) = LCNT
+C           ARE THERE ANY NODES LEFT ON THE STACK.
+            IF (IST.NE.0) GO TO 120
+C           HAVE ALL THE NODES BEEN ORDERED.
+            IF (ICNT.LT.N) GO TO 180
+            GO TO 200
+C
+C           BACKTRACK TO PREVIOUS NODE ON PATH.
+  120       IW = IV
+            IV = PREV(IV)
+C           UPDATE VALUE OF LOWL(IV) IF NECESSARY.
+            LOWL(IV) = MIN(LOWL(IV),LOWL(IW))
+            GO TO 160
+C
+C           PUT NEW NODE ON THE STACK.
+  140       ARP(IV) = I2 - II - 1
+            PREV(IW) = IV
+            IV = IW
+            IST = IST + 1
+            LOWL(IV) = IST
+            NUMB(IV) = IST
+            K = N + 1 - IST
+            IB(K) = IV
+  160    CONTINUE
+  180 CONTINUE
+C
+C     PUT PERMUTATION IN THE REQUIRED FORM.
+  200 DO 220 I = 1, N
+         II = NUMB(I)
+         ARP(II) = I
+  220 CONTINUE
+      RETURN
+      END
+      SUBROUTINE F01BRV(N,ICN,LICN,IP,LENR,IOR,IB,NUM,IW)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC13D
+C
+C     INTERFACE FOR F01BRV
+C
+C     .. Scalar Arguments ..
+      INTEGER           LICN, N, NUM
+C     .. Array Arguments ..
+      INTEGER           IB(N), ICN(LICN), IOR(N), IP(N), IW(N,3),
+     *                  LENR(N)
+C     .. External Subroutines ..
+      EXTERNAL          F01BRU
+C     .. Executable Statements ..
+      CALL F01BRU(N,ICN,LICN,IP,LENR,IOR,IB,NUM,IW(1,1),IW(1,2),IW(1,3))
+      RETURN
+      END
+      SUBROUTINE F01BRW(N,ICN,LICN,IP,LENR,IPERM,NUMNZ,PR,PREORD,ARP,CV,
+     *                  OUT,NP1)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC21B
+C
+C     FINDS A ROW PERMUTATION OF A SPARSE MATRIX THAT MAKES ALL THE
+C     DIAGONAL ELEMENTS NON-ZERO (OR AS MANY OF THEM AS POSSIBLE),
+C     GIVEN THE PATTERN OF NON-ZEROS.
+C
+C     PR(I) IS THE PREVIOUS ROW TO I IN THE DEPTH FIRST SEARCH.
+C     .     IT IS USED AS A WORK ARRAY IN THE SORTING ALGORITHM.
+C     ELEMENTS (IPERM(I),I) I=1, ... N  ARE NON-ZERO AT THE END OF
+C     .     THE ALGORITHM UNLESS N ASSIGNMENTS HAVE NOT BEEN MADE.
+C     .     IN WHICH CASE (IPERM(I),I) WILL BE ZERO FOR N-NUMNZ
+C     .     ENTRIES.
+C     CV(I) IS THE MOST RECENT ROW EXTENSION AT WHICH COLUMN I
+C     .     WAS VISITED.
+C     PREORD(I) IS THE ROW IN THE ORIGINAL MATRIX WHICH HAS THE
+C     .     ITH SMALLEST NUMBER OF NON-ZEROS.
+C     ARP(I) IS ONE LESS THAN THE NUMBER OF NON-ZEROS IN ROW I
+C     .     WHICH HAVE NOT BEEN SCANNED WHEN LOOKING FOR A CHEAP
+C     .     ASSIGNMENT.
+C     OUT(I) IS ONE LESS THAN THE NUMBER OF NON-ZEROS IN ROW I
+C     .     WHICH HAVE NOT BEEN SCANNED DURING ONE PASS THROUGH THE
+C     .     MAIN LOOP.
+C
+C
+C     INITIALIZATION OF ARRAYS.
+C     .. Scalar Arguments ..
+      INTEGER           LICN, N, NP1, NUMNZ
+C     .. Array Arguments ..
+      INTEGER           ARP(N), CV(NP1), ICN(LICN), IP(N), IPERM(N),
+     *                  LENR(N), OUT(N), PR(N), PREORD(N)
+C     .. Local Scalars ..
+      INTEGER           I, II, IN1, IN2, IOUTK, IPTR, IROW, J, J1, JORD,
+     *                  K, KK, NUM
+C     .. Executable Statements ..
+      DO 20 I = 1, N
+         ARP(I) = LENR(I) - 1
+         CV(I) = 0
+         IPERM(I) = 0
+   20 CONTINUE
+      CV(NP1) = 0
+      NUMNZ = 0
+C
+C     ROWS ORDERED IN ORDER OF INCREASING NUMBER OF NON-ZEROS,
+C     USING  LIST SORT INVOLVING O(N) OPERATIONS.
+      DO 40 I = 1, N
+         IROW = LENR(I) + 1
+         PR(I) = CV(IROW)
+         CV(IROW) = I
+   40 CONTINUE
+      NUM = 1
+      DO 100 I = 1, NP1
+         IPTR = CV(I)
+         DO 60 J = 1, N
+            IF (IPTR.EQ.0) GO TO 80
+            PREORD(NUM) = IPTR
+            NUM = NUM + 1
+            IPTR = PR(IPTR)
+   60    CONTINUE
+   80    CV(I) = 0
+  100 CONTINUE
+C
+C     MAIN LOOP.
+C     EACH PASS ROUND THIS LOOP EITHER RESULTS IN A NEW ASSIGNMENT
+C     OR GIVES A ROW WITH NO ASSIGNMENT.
+      DO 280 JORD = 1, N
+         J = PREORD(JORD)
+         PR(J) = -1
+         DO 220 K = 1, JORD
+C           LOOK FOR A CHEAP ASSIGNMENT
+            IN1 = ARP(J)
+            IF (IN1.LT.0) GO TO 140
+            IN2 = IP(J) + LENR(J) - 1
+            IN1 = IN2 - IN1
+            DO 120 II = IN1, IN2
+               I = ICN(II)
+               IF (IPERM(I).EQ.0) GO TO 240
+  120       CONTINUE
+C           NO CHEAP ASSIGNMENT IN ROW.
+            ARP(J) = -1
+C           BEGIN LOOKING FOR ASSIGNMENT CHAIN STARTING WITH ROW J.
+  140       OUT(J) = LENR(J) - 1
+C           INNER LOOP.  EXTENDS CHAIN BY ONE OR BACKTRACKS.
+            DO 200 KK = 1, JORD
+               IN1 = OUT(J)
+               IF (IN1.LT.0) GO TO 180
+               IN2 = IP(J) + LENR(J) - 1
+               IN1 = IN2 - IN1
+C              FORWARD SCAN.
+               DO 160 II = IN1, IN2
+                  I = ICN(II)
+                  IF (CV(I).EQ.JORD) GO TO 160
+C                 COLUMN I HAS NOT YET BEEN ACCESSED DURING THIS PASS.
+                  J1 = J
+                  J = IPERM(I)
+                  CV(I) = JORD
+                  PR(J) = J1
+                  OUT(J1) = IN2 - II - 1
+                  GO TO 220
+  160          CONTINUE
+C
+C              BACKTRACKING STEP.
+  180          J = PR(J)
+               IF (J.EQ.-1) GO TO 280
+  200       CONTINUE
+  220    CONTINUE
+C
+C        NEW ASSIGNMENT IS MADE.
+  240    IPERM(I) = J
+         ARP(J) = IN2 - II - 1
+         NUMNZ = NUMNZ + 1
+         DO 260 K = 1, JORD
+            J = PR(J)
+            IF (J.EQ.-1) GO TO 280
+            II = IP(J) + LENR(J) - OUT(J) - 2
+            I = ICN(II)
+            IPERM(I) = J
+  260    CONTINUE
+  280 CONTINUE
+C
+C     IF MATRIX IS STRUCTURALLY SINGULAR, WE NOW COMPLETE THE
+C     PERMUTATION IPERM.
+      IF (NUMNZ.EQ.N) RETURN
+      DO 300 I = 1, N
+         ARP(I) = 0
+  300 CONTINUE
+      K = 0
+      DO 340 I = 1, N
+         IF (IPERM(I).NE.0) GO TO 320
+         K = K + 1
+         OUT(K) = I
+         GO TO 340
+  320    J = IPERM(I)
+         ARP(J) = I
+  340 CONTINUE
+      K = 0
+      DO 360 I = 1, N
+         IF (ARP(I).NE.0) GO TO 360
+         K = K + 1
+         IOUTK = OUT(K)
+         IPERM(IOUTK) = I
+  360 CONTINUE
+      RETURN
+      END
+      SUBROUTINE F01BRX(N,ICN,LICN,IP,LENR,IPERM,NUMNZ,IW)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC21A
+C
+C     INTERFACE FOR F01BRW
+C
+C     .. Scalar Arguments ..
+      INTEGER           LICN, N, NUMNZ
+C     .. Array Arguments ..
+      INTEGER           ICN(LICN), IP(N), IPERM(N), IW(N,5), LENR(N)
+C     .. Local Scalars ..
+      INTEGER           NP1
+C     .. External Subroutines ..
+      EXTERNAL          F01BRW
+C     .. Executable Statements ..
+      NP1 = N + 1
+      CALL F01BRW(N,ICN,LICN,IP,LENR,IPERM,NUMNZ,IW(1,1),IW(1,2),IW(1,3)
+     *            ,IW(1,4),IW(1,5),NP1)
+      RETURN
+      END
+      SUBROUTINE F01BRY(N,ICN,A,LICN,LENR,IDISP,IP,IQ,LENOFF,IW,IW1,
+     *                  ABORT,IFAIL)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC23A
+C
+C     PERMUTES THE ROWS AND COLUMNS OF A SPARSE MATRIX SO THAT IT IS
+C     IN BLOCK LOWER TRIANGULAR FORM
+C
+C     .. Scalar Arguments ..
+      INTEGER           IFAIL, LICN, N
+      LOGICAL           ABORT
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN)
+      INTEGER           ICN(LICN), IDISP(10), IP(N), IQ(N), IW(N,5),
+     *                  IW1(N,2), LENOFF(N), LENR(N)
+C     .. Local Scalars ..
+      INTEGER           I, I1, I2, IBEG, IBLOCK, IEND, II, ILEND, INEW,
+     *                  IOLD, IROWB, IROWE, ISAVE, J, JJ, JNEW, JNPOS,
+     *                  JOLD, K, LARGE, LENI, NERR, NUM, NUMNZ, NZ
+C     .. Local Arrays ..
+      CHARACTER*56      REC(3)
+C     .. External Subroutines ..
+      EXTERNAL          F01BRV, F01BRX, X04AAF, X04BAF
+C     .. Intrinsic Functions ..
+      INTRINSIC         MAX, MIN, MOD
+C     .. Executable Statements ..
+      ISAVE = IFAIL
+      IFAIL = 0
+C
+C     SET UP POINTERS IW(.,1) TO THE BEGINNING OF THE ROWS AND SET
+C     LENOFF EQUAL TO LENR.
+      IW1(1,1) = 1
+      LENOFF(1) = LENR(1)
+C     INITIALIZE NUM AND LARGE TO PREVENT ASSIGNMENT OF UNSET
+C     VARIABLES AT END OF ROUTINE IN THE EVENT OF A FAILURE.
+      NUM = 0
+      LARGE = 0
+      IF (N.EQ.1) GO TO 40
+      DO 20 I = 2, N
+         LENOFF(I) = LENR(I)
+         IW1(I,1) = IW1(I-1,1) + LENR(I-1)
+   20 CONTINUE
+C     IDISP(1) POINTS TO THE FIRST POSITION IN A/ICN AFTER THE
+C     OFF-DIAGONAL BLOCKS AND UNTREATED ROWS.
+   40 IDISP(1) = IW1(N,1) + LENR(N)
+C
+C     FIND ROW PERMUTATION IP TO MAKE DIAGONAL ZERO-FREE.
+      CALL F01BRX(N,ICN,LICN,IW1,LENR,IP,NUMNZ,IW)
+C
+C     POSSIBLE ERROR RETURN FOR STRUCTURALLY SINGULAR MATRICES.
+      IF (NUMNZ.NE.N .AND. ABORT) GO TO 340
+C
+C     IW1(.,2) AND LENR ARE PERMUTATIONS OF IW1(.,1) AND
+C     LENR/LENOFF SUITABLE FOR ENTRY
+C     TO F01BRV SINCE MATRIX WITH THESE ROW POINTER AND LENGTH
+C     ARRAYS HAS MAXIMUM NUMBER OF NON-ZEROS ON THE DIAGONAL.
+      DO 60 II = 1, N
+         I = IP(II)
+         IW1(II,2) = IW1(I,1)
+         LENR(II) = LENOFF(I)
+   60 CONTINUE
+C
+C     FIND SYMMETRIC PERMUTATION IQ TO BLOCK LOWER TRIANGULAR FORM.
+      CALL F01BRV(N,ICN,LICN,IW1(1,2),LENR,IQ,IW(1,4),NUM,IW)
+C
+      IF (NUM.NE.1) GO TO 120
+C
+C     ACTION TAKEN IF MATRIX IS IRREDUCIBLE.
+C     WHOLE MATRIX IS JUST MOVED TO THE END OF THE STORAGE.
+      DO 80 I = 1, N
+         LENR(I) = LENOFF(I)
+         IP(I) = I
+         IQ(I) = I
+   80 CONTINUE
+      LENOFF(1) = -1
+C     IDISP(1) IS THE FIRST POSITION AFTER THE LAST ELEMENT IN THE
+C     OFF-DIAGONAL BLOCKS AND UNTREATED ROWS.
+      NZ = IDISP(1) - 1
+      IDISP(1) = 1
+C     IDISP(2) IS THE POSITION IN A/ICN OF THE FIRST ELEMENT IN THE
+C     DIAGONAL BLOCKS.
+      IDISP(2) = LICN - NZ + 1
+      LARGE = N
+      IF (NZ.EQ.LICN) GO TO 400
+      DO 100 K = 1, NZ
+         J = NZ - K + 1
+         JJ = LICN - K + 1
+         A(JJ) = A(J)
+         ICN(JJ) = ICN(J)
+  100 CONTINUE
+      GO TO 400
+C
+C     DATA STRUCTURE REORDERED.
+C
+C     FORM COMPOSITE ROW PERMUTATION ... IP(I) = IP(IQ(I)).
+  120 DO 140 II = 1, N
+         I = IQ(II)
+         IW(II,1) = IP(I)
+  140 CONTINUE
+      DO 160 I = 1, N
+         IP(I) = IW(I,1)
+  160 CONTINUE
+C
+C     RUN THROUGH BLOCKS IN REVERSE ORDER SEPARATING DIAGONAL
+C     BLOCKS WHICH ARE MOVED TO THE END OF THE STORAGE.  ELEMENTS IN
+C     OFF-DIAGONAL BLOCKS ARE LEFT IN PLACE UNLESS A COMPRESS IS
+C     NECESSARY.
+C
+C     IBEG INDICATES THE LOWEST VALUE OF J FOR WHICH ICN(J) HAS
+C     BEEN SET TO ZERO WHEN ELEMENT IN POSITION J WAS MOVED TO THE
+C     DIAGONAL BLOCK PART OF STORAGE.
+      IBEG = LICN + 1
+C     IEND IS THE POSITION OF THE FIRST ELEMENT OF THOSE TREATED
+C     ROWS WHICH ARE IN DIAGONAL BLOCKS.
+      IEND = LICN + 1
+C     LARGE IS THE DIMENSION OF THE LARGEST BLOCK ENCOUNTERED SO
+C     FAR.
+      LARGE = 0
+C
+C     NUM IS THE NUMBER OF DIAGONAL BLOCKS.
+      DO 300 K = 1, NUM
+         IBLOCK = NUM - K + 1
+C        I1 IS FIRST ROW (IN PERMUTED FORM) OF BLOCK IBLOCK.
+C        I2 IS LAST ROW (IN PERMUTED FORM) OF BLOCK IBLOCK.
+         I1 = IW(IBLOCK,4)
+         I2 = N
+         IF (K.NE.1) I2 = IW(IBLOCK+1,4) - 1
+         LARGE = MAX(LARGE,I2-I1+1)
+C        GO THROUGH THE ROWS OF BLOCK IBLOCK IN THE REVERSE ORDER.
+         DO 280 II = I1, I2
+            INEW = I2 - II + I1
+C           WE NOW DEAL WITH ROW INEW IN PERMUTED FORM (ROW IOLD IN
+C           ORIGINAL MATRIX).
+            IOLD = IP(INEW)
+C           IF THERE IS SPACE TO MOVE UP DIAGONAL BLOCK PORTION
+C           OF ROW GO TO ...
+            IF (IEND-IDISP(1).GE.LENOFF(IOLD)) GO TO 220
+C
+C           IN-LINE COMPRESS.
+C           MOVES SEPARATED OFF-DIAGONAL ELEMENTS AND UNTREATED ROWS TO
+C           FRONT OF STORAGE.
+            JNPOS = IBEG
+            ILEND = IDISP(1) - 1
+            IF (ILEND.LT.IBEG) GO TO 360
+            DO 180 J = IBEG, ILEND
+               IF (ICN(J).EQ.0) GO TO 180
+               ICN(JNPOS) = ICN(J)
+               A(JNPOS) = A(J)
+               JNPOS = JNPOS + 1
+  180       CONTINUE
+            IDISP(1) = JNPOS
+            IF (IEND-JNPOS.LT.LENOFF(IOLD)) GO TO 360
+            IBEG = LICN + 1
+C           RESET POINTERS TO THE BEGINNING OF THE ROWS.
+            DO 200 I = 2, N
+               IW1(I,1) = IW1(I-1,1) + LENOFF(I-1)
+  200       CONTINUE
+C
+C           ROW IOLD IS NOW SPLIT INTO DIAG. AND OFF-DIAG. PARTS.
+  220       IROWB = IW1(IOLD,1)
+            LENI = 0
+            IROWE = IROWB + LENOFF(IOLD) - 1
+C           BACKWARD SCAN OF WHOLE OF ROW IOLD (IN ORIGINAL MATRIX).
+            IF (IROWE.LT.IROWB) GO TO 260
+            DO 240 JJ = IROWB, IROWE
+               J = IROWE - JJ + IROWB
+               JOLD = ICN(J)
+C              IW(.,2) HOLDS THE INVERSE PERMUTATION TO IQ.
+C              ..... IT WAS SET TO THIS IN F01BRV.
+               JNEW = IW(JOLD,2)
+C              IF (JNEW.LT.I1) THEN ....
+C              ELEMENT IS IN OFF-DIAGONAL BLOCK AND SO IS LEFT IN SITU.
+               IF (JNEW.LT.I1) GO TO 240
+C              ELEMENT IS IN DIAGONAL BLOCK AND IS MOVED TO THE
+C              END OF THE STORAGE.
+               IEND = IEND - 1
+               A(IEND) = A(J)
+               ICN(IEND) = JNEW
+               IBEG = MIN(IBEG,J)
+               ICN(J) = 0
+               LENI = LENI + 1
+  240       CONTINUE
+            LENOFF(IOLD) = LENOFF(IOLD) - LENI
+  260       LENR(INEW) = LENI
+  280    CONTINUE
+         IP(I2) = -IP(I2)
+  300 CONTINUE
+C     RESETS IP(N) TO POSITIVE VALUE.
+      IP(N) = -IP(N)
+C     IDISP(2) IS POSITION OF FIRST ELEMENT IN DIAGONAL BLOCKS.
+      IDISP(2) = IEND
+C
+C     THIS COMPRESS IS USED TO MOVE ALL OFF-DIAGONAL ELEMENTS TO
+C     THE FRONT OF THE STORAGE.
+      IF (IBEG.GT.LICN) GO TO 400
+      JNPOS = IBEG
+      ILEND = IDISP(1) - 1
+      DO 320 J = IBEG, ILEND
+         IF (ICN(J).EQ.0) GO TO 320
+         ICN(JNPOS) = ICN(J)
+         A(JNPOS) = A(J)
+         JNPOS = JNPOS + 1
+  320 CONTINUE
+C     IDISP(1) IS FIRST POSITION AFTER LAST ELEMENT OF OFF-DIAGONAL
+C     BLOCKS.
+      IDISP(1) = JNPOS
+      GO TO 400
+C
+C     ERROR RETURN
+C     IFAIL = 1 - MATRIX IS STRUCTURALLY SINGULAR, RANK = NUMNZ
+C     IFAIL = 7 - LICN NOT BIG ENOUGH, INCREASE BY N
+C
+  340 IFAIL = 1
+      GO TO 380
+  360 IFAIL = 7
+  380 CONTINUE
+C     ** CODE FOR OUTPUT OF ERROR MESSAGES *************************
+      IF (MOD(ISAVE/10,10).EQ.0) GO TO 400
+      CALL X04AAF(0,NERR)
+      IF (IFAIL.EQ.1) THEN
+         WRITE (REC,FMT=99999) NUMNZ
+         CALL X04BAF(NERR,REC(1))
+         CALL X04BAF(NERR,REC(2))
+         CALL X04BAF(NERR,REC(3))
+      END IF
+      IF (IFAIL.EQ.7) THEN
+         WRITE (REC,FMT=99998) N
+         CALL X04BAF(NERR,REC(1))
+         CALL X04BAF(NERR,REC(2))
+      END IF
+C     ** END OF CODE FOR OUTPUT OF ERROR MESSAGES ******************
+  400 IDISP(8) = NUMNZ
+      IDISP(9) = NUM
+      IDISP(10) = LARGE
+      RETURN
+C
+99999 FORMAT (/' MATRIX IS STRUCTURALLY SINGULAR - DECOMPOSITION ABORT',
+     *  'ED',/'  RANK = ',I6)
+99998 FORMAT (/' LICN NOT BIG ENOUGH FOR PERMUTATION - INCREASE BY',I6)
+      END
+      SUBROUTINE F01BRZ(NC,MAXA,A,INUM,JPTR,JNUM)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MC20A
+C
+C     SORTS THE NON-ZEROS OF A SPARSE MATRIX FROM ARBITRARY ORDER
+C     TO COLUMN ORDER, UNORDERED WITHIN EACH COLUMN.
+C
+C     .. Scalar Arguments ..
+      INTEGER           MAXA, NC
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(MAXA)
+      INTEGER           INUM(MAXA), JNUM(MAXA), JPTR(NC)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  ACE, ACEP
+      INTEGER           I, ICE, ICEP, J, JA, JB, JCE, JCEP, JDISP, K,
+     *                  KR, LOC, NULL
+C     .. Executable Statements ..
+      JDISP = 0
+      NULL = -JDISP
+C     CLEAR JPTR
+      DO 20 J = 1, NC
+         JPTR(J) = 0
+   20 CONTINUE
+C     COUNT THE NUMBER OF ELEMENTS IN EACH COLUMN.
+      DO 40 K = 1, MAXA
+         J = JNUM(K) + JDISP
+         JPTR(J) = JPTR(J) + 1
+   40 CONTINUE
+C     SET THE JPTR ARRAY
+      K = 1
+      DO 60 J = 1, NC
+         KR = K + JPTR(J)
+         JPTR(J) = K
+         K = KR
+   60 CONTINUE
+C
+C     REORDER THE ELEMENTS INTO COLUMN ORDER.  THE ALGORITHM
+C     IS AN IN-PLACE SORT AND IS OF ORDER MAXA.
+      DO 100 I = 1, MAXA
+C        ESTABLISH THE CURRENT ENTRY.
+         JCE = JNUM(I) + JDISP
+         IF (JCE.EQ.0) GO TO 100
+         ACE = A(I)
+         ICE = INUM(I)
+C        CLEAR THE LOCATION VACATED.
+         JNUM(I) = NULL
+C        CHAIN FROM CURRENT ENTRY TO STORE ITEMS.
+         DO 80 J = 1, MAXA
+C           CURRENT ENTRY NOT IN CORRECT POSITION.  DETERMINE CORRECT
+C           POSITION TO STORE ENTRY.
+            LOC = JPTR(JCE)
+            JPTR(JCE) = JPTR(JCE) + 1
+C           SAVE CONTENTS OF THAT LOCATION.
+            ACEP = A(LOC)
+            ICEP = INUM(LOC)
+            JCEP = JNUM(LOC)
+C           STORE CURRENT ENTRY.
+            A(LOC) = ACE
+            INUM(LOC) = ICE
+            JNUM(LOC) = NULL
+C           CHECK IF NEXT CURRENT ENTRY NEEDS TO BE PROCESSED.
+            IF (JCEP.EQ.NULL) GO TO 100
+C           IT DOES.  COPY INTO CURRENT ENTRY.
+            ACE = ACEP
+            ICE = ICEP
+            JCE = JCEP + JDISP
+   80    CONTINUE
+  100 CONTINUE
+C
+C     **      RESET JPTR VECTOR.
+      JA = 1
+      DO 120 J = 1, NC
+         JB = JPTR(J)
+         JPTR(J) = JA
+         JA = JB
+  120 CONTINUE
+      RETURN
+      END
+      SUBROUTINE F01BSF(N,NZ,A,LICN,IVECT,JVECT,ICN,IKEEP,IW,W,GROW,EPS,
+     *                  RMIN,ABORT,IDISP,IFAIL)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA28B
+C
+C     DECOMPOSES A REAL SPARSE MATRIX USING THE PIVOTAL SEQUENCE
+C     PREVIOUSLY OBTAINED BY F01BRF WHEN A MATRIX OF THE SAME
+C     SPARSITY PATTERN WAS DECOMPOSED.
+C
+C     THE PARAMETERS ARE AS FOLLOWS ...
+C     N      INTEGER  ORDER OF MATRIX  NOT ALTERED BY SUBROUTINE.
+C     NZ     INTEGER  NUMBER OF NON-ZEROS IN INPUT MATRIX  NOT
+C     .      ALTERED BY SUBROUTINE.
+C     A      REAL ARRAY  LENGTH LICN.  HOLDS NON-ZEROS OF MATRIX ON
+C     .      ENTRY AND NON-ZEROS OF FACTORS ON EXIT.  REORDERED
+C     .      BY F01BSZ AND ALTERED BY SUBROUTINE F01BSY.
+C     LICN   INTEGER  LENGTH OF ARRAYS A AND ICN.  NOT ALTERED BY
+C     .      SUBROUTINE.
+C     IVECT,JVECT  INTEGER ARRAYS  LENGTH NZ.  HOLD ROW AND COLUMN
+C     .      INDICES OF NON-ZEROS RESPECTIVELY.  NOT ALTERED BY
+C     .      SUBROUTINE.
+C     ICN    INTEGER ARRAY  LENGTH LICN.  SAME ARRAY AS OUTPUT FROM
+C     .      F01BRF.  UNCHANGED BY F01BSF.
+C     IKEEP  INTEGER ARRAY  LENGTH 5*N.  SAME ARRAY AS OUTPUT FROM
+C     .      F01BRF.  UNCHANGED BY F01BSF.
+C     IW     INTEGER ARRAY  LENGTH 5*N.
+C     .      USED AS WORKSPACE BY F01BSZ AND F01BSY.
+C     W      REAL ARRAY  LENGTH N.  USED AS WORKSPACE
+C     .      BY F01BSZ, F01BSY AND (OPTIONALLY) F01BRQ.
+C     GROW   LOGICAL.  IF TRUE, AN ESTIMATE OF THE INCREASE
+C     .      IN SIZE OF ARRAY ELEMENTS DURING L/U DECOMPOSITION
+C     .      IS GIVEN BY F01BRQ IN W(1).
+C     EPS    REAL.  USED TO TEST FOR SMALL PIVOTS. IF THE USER SETS
+C     .      EPS.GT.1.0, NO CHECK IS MADE ON THE SIZE OF THE PIVOTS.
+C     RMIN   REAL.  GIVES THE USER SOME INFORMATION ABOUT THE
+C     .      STABILITY OF THE DECOMPOSITION.
+C     ABORT  LOGICAL.  IF ABORT=TRUE, THE ROUTINE WILL EXIT
+C     .      IMMEDIATELY ON DETECTING DUPLICATE ELEMENTS IN THE
+C     .      INPUT MATRIX.
+C     IDISP  INTEGER ARRAY LENGTH 2.  IDISP(1) AND (2) MUST HAVE THE
+C     .      SAME VALUES AS OUTPUT FROM F01BRF. UNCHANGED BY THE
+C     .      ROUTINE.
+C     IFAIL  INTEGER.  USED AS ERROR FLAG BY THE ROUTINE.
+C
+C     .. Parameters ..
+      CHARACTER*6       SRNAME
+      PARAMETER         (SRNAME='F01BSF')
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  EPS, RMIN
+      INTEGER           IFAIL, LICN, N, NZ
+      LOGICAL           ABORT, GROW
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN), W(N)
+      INTEGER           ICN(LICN), IDISP(2), IKEEP(N,5), IVECT(NZ),
+     *                  IW(N,5), JVECT(NZ)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  WMAX
+      INTEGER           I1, IEND, IR, ISAVE, NERR
+C     .. Local Arrays ..
+      CHARACTER*1       P01REC(1)
+      CHARACTER*65      REC(2)
+C     .. External Functions ..
+      INTEGER           P01ABF
+      EXTERNAL          P01ABF
+C     .. External Subroutines ..
+      EXTERNAL          F01BRQ, F01BSY, F01BSZ, X04AAF, X04BAF
+C     .. Intrinsic Functions ..
+      INTRINSIC         MOD
+C     .. Executable Statements ..
+      ISAVE = IFAIL
+C     NERR IS THE UNIT NUMBER FOR ERROR MESSAGES
+      CALL X04AAF(0,NERR)
+C     SIMPLE DATA CHECK ON VARIABLES.
+      IF (N.GT.0) GO TO 20
+      IFAIL = 1
+      GO TO 120
+   20 IF (NZ.GT.0) GO TO 40
+      IFAIL = 2
+      GO TO 120
+   40 IF (LICN.GE.NZ) GO TO 60
+      IFAIL = 3
+      GO TO 120
+C
+   60 CALL F01BSZ(N,A,LICN,IVECT,JVECT,NZ,ICN,IKEEP,IKEEP(1,4)
+     *            ,IKEEP(1,5),IKEEP(1,2),IKEEP(1,3),IW(1,3),IW,W(1)
+     *            ,ABORT,IDISP,IFAIL)
+C     WMAX IS LARGEST ELEMENT IN MATRIX.
+      WMAX = W(1)
+      IF (IFAIL.NE.0) GO TO 120
+C
+C     PERFORM ROW-GAUSS ELIMINATION ON THE STRUCTURE RECEIVED FROM
+C     F01BSZ
+C
+      IFAIL = ISAVE
+      CALL F01BSY(N,ICN,A,LICN,IKEEP,IKEEP(1,4),IDISP,IKEEP(1,2)
+     *            ,IKEEP(1,3),W,IW,EPS,RMIN,IFAIL)
+      IF (IFAIL.EQ.0) GO TO 100
+      IF (IFAIL.GT.0) GO TO 80
+      IR = -IFAIL
+      IFAIL = 6
+      GO TO 120
+   80 IR = IFAIL
+      IFAIL = 7
+C
+C     OPTIONALLY CALCULATE THE GROWTH PARAMETER.
+  100 I1 = IDISP(1)
+      IEND = LICN - I1 + 1
+      IF (GROW) CALL F01BRQ(N,ICN,A(I1),IEND,IKEEP,IKEEP(1,4),W)
+C     INCREMENT ESTIMATE BY LARGEST ELEMENT IN INPUT MATRIX.
+      IF (GROW) W(1) = W(1) + WMAX
+      IF (IFAIL.EQ.0) GO TO 160
+C
+  120 CONTINUE
+C     ** CODE FOR OUTPUT OF ERROR MESSAGES *************************
+      IF (MOD(ISAVE/10,10).EQ.0) GO TO 140
+      CALL X04AAF(0,NERR)
+      IF (IFAIL.EQ.1) WRITE (REC,FMT=99999) N
+      IF (IFAIL.EQ.2) WRITE (REC,FMT=99998) NZ
+      IF (IFAIL.EQ.3) WRITE (REC,FMT=99997) LICN, NZ
+      IF (IFAIL.EQ.6) WRITE (REC,FMT=99996) IR
+      IF (IFAIL.EQ.7) WRITE (REC,FMT=99995) IR
+      IF (IFAIL.EQ.8) WRITE (REC,FMT=99994)
+      IF ((IFAIL.GE.1 .AND. IFAIL.LE.3)
+     *    .OR. (IFAIL.GE.6 .AND. IFAIL.LE.8)) THEN
+         CALL X04BAF(NERR,REC(1))
+         CALL X04BAF(NERR,REC(2))
+      END IF
+C     ** END OF CODE FOR OUTPUT OF ERROR MESSAGES ******************
+C
+  140 IFAIL = P01ABF(ISAVE,IFAIL,SRNAME,0,P01REC)
+  160 RETURN
+C
+99999 FORMAT (/' ON ENTRY N .LE. 0 , N =',I10)
+99998 FORMAT (/' ON ENTRY NZ .LE. 0 , NZ =',I10)
+99997 FORMAT (/' ON ENTRY LICN .LT. NZ , LICN = ',I8,'  NZ = ',I8)
+99996 FORMAT (/' NUMERICAL SINGULARITY IN ROW ',I4,' - DECOMPOSITION A',
+     *  'BORTED')
+99995 FORMAT (/' SUBTHRESHOLD PIVOT IN ROW ',I4,' - DECOMPOSITION COMP',
+     *  'LETED')
+99994 FORMAT (/' DUPLICATE ELEMENTS FOUND ON INPUT - SEE ADVISORY MESS',
+     *  'AGES')
+      END
+      SUBROUTINE F01BSY(N,ICN,A,LICN,LENR,LENRL,IDISP,IP,IQ,W,IW,EPS,
+     *                  RMIN,IFAIL)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA30B
+C
+C     PERFORMS LU-DECOMPOSITION OF THE DIAGONAL BLOCKS OF A MATRIX
+C     OF THE SAME (OR A COMPATIBLE) SPARSITY PATTERN AS THAT OF A
+C     MATRIX PREVIOUSLY DECOMPOSED BY F01BRT.
+C
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  EPS, RMIN
+      INTEGER           IFAIL, LICN, N
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN), W(N)
+      INTEGER           ICN(LICN), IDISP(2), IP(N), IQ(N), IW(N),
+     *                  LENR(N), LENRL(N)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  AU, ONE, ROWMAX, ZERO
+      INTEGER           I, IFIN, ILEND, IPIVJ, ISING, ISTART, J, JAY,
+     *                  JAYJAY, JFIN, JJ, PIVPOS
+      LOGICAL           STAB
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS, MAX
+C     .. Data statements ..
+      DATA              ZERO/0.0D0/, ONE/1.0D0/
+C     .. Executable Statements ..
+      STAB = EPS .LE. ONE
+      RMIN = EPS
+      ISING = 0
+      IFAIL = 0
+      IF (N.EQ.1) GO TO 320
+      DO 20 I = 1, N
+         W(I) = ZERO
+   20 CONTINUE
+C     SET UP POINTERS TO THE BEGINNING OF THE ROWS.
+      IW(1) = IDISP(1)
+      DO 40 I = 2, N
+         IW(I) = IW(I-1) + LENR(I-1)
+   40 CONTINUE
+C
+C     ****   START  OF MAIN LOOP    ****
+C     AT STEP I, ROW I OF A IS TRANSFORMED TO ROW I OF L/U BY
+C     ADDING APPROPRIATE MULTIPLES OF ROWS 1 TO I-1.
+C     .... USING ROW-GAUSS ELIMINATION.
+      DO 280 I = 1, N
+C        ISTART IS BEGINNING OF ROW I OF A AND ROW I OF L.
+         ISTART = IW(I)
+C        IFIN IS END OF ROW I OF A AND ROW I OF U.
+         IFIN = ISTART + LENR(I) - 1
+C        ILEND IS END OF ROW I OF L.
+         ILEND = ISTART + LENRL(I) - 1
+         IF (ISTART.GT.ILEND) GO TO 140
+C        LOAD ROW I OF A INTO VECTOR W.
+         DO 60 JJ = ISTART, IFIN
+            J = ICN(JJ)
+            W(J) = A(JJ)
+   60    CONTINUE
+C
+C        ADD MULTIPLES OF APPROPRIATE ROWS OF  I TO I-1  TO ROW I.
+         DO 100 JJ = ISTART, ILEND
+            J = ICN(JJ)
+C           IPIVJ IS POSITION OF PIVOT IN ROW J.
+            IPIVJ = IW(J) + LENRL(J)
+C           FORM MULTIPLIER AU.
+            AU = -W(J)/A(IPIVJ)
+            W(J) = AU
+C           AU * ROW J (U PART) IS ADDED TO ROW I.
+            IPIVJ = IPIVJ + 1
+            JFIN = IW(J) + LENR(J) - 1
+            IF (IPIVJ.GT.JFIN) GO TO 100
+C           INNERMOST LOOP.
+            DO 80 JAYJAY = IPIVJ, JFIN
+               JAY = ICN(JAYJAY)
+               W(JAY) = W(JAY) + AU*A(JAYJAY)
+   80       CONTINUE
+  100    CONTINUE
+C        RELOAD W BACK INTO A (NOW L/U)
+         DO 120 JJ = ISTART, IFIN
+            J = ICN(JJ)
+            A(JJ) = W(J)
+            W(J) = ZERO
+  120    CONTINUE
+C        WE NOW PERFORM THE STABILITY CHECKS.
+  140    PIVPOS = ILEND + 1
+         IF (IQ(I).GT.0) GO TO 240
+C        MATRIX HAD SINGULARITY AT THIS POINT IN F01BRT.
+C        IS IT THE FIRST SUCH PIVOT IN CURRENT BLOCK ...
+         IF (ISING.EQ.0) ISING = I
+C        DOES CURRENT MATRIX HAVE A SINGULARITY IN THE SAME PLACE ...
+         IF (PIVPOS.GT.IFIN) GO TO 160
+         IF (A(PIVPOS).NE.ZERO) GO TO 300
+C        IT DOES .. SO SET ISING IF IT IS NOT THE END OF THE CURRENT
+C        BLOCK.
+C        CHECK TO SEE THAT APPROPRIATE PART OF L/U IS ZERO OR NULL.
+  160    IF (ISTART.GT.IFIN) GO TO 200
+         DO 180 JJ = ISTART, IFIN
+            IF (ICN(JJ).LT.ISING) GO TO 180
+            IF (A(JJ).NE.ZERO) GO TO 300
+  180    CONTINUE
+  200    IF (PIVPOS.LE.IFIN) A(PIVPOS) = ONE
+         IF (IP(I).GT.0 .AND. I.NE.N) GO TO 280
+C        END OF CURRENT BLOCK ... RESET ZERO PIVOTS AND ISING.
+         DO 220 J = ISING, I
+            IF ((LENR(J)-LENRL(J)).EQ.0) GO TO 220
+            JJ = IW(J) + LENRL(J)
+            A(JJ) = ZERO
+  220    CONTINUE
+         ISING = 0
+         GO TO 280
+C        MATRIX HAD NON-ZERO PIVOT IN F01BRT AT THIS STAGE.
+  240    IF (PIVPOS.GT.IFIN) GO TO 300
+         IF (A(PIVPOS).EQ.ZERO) GO TO 300
+         IF ( .NOT. STAB) GO TO 280
+         ROWMAX = ZERO
+         DO 260 JJ = PIVPOS, IFIN
+            ROWMAX = MAX(ROWMAX,ABS(A(JJ)))
+  260    CONTINUE
+         IF (ABS(A(PIVPOS))/ROWMAX.GE.RMIN) GO TO 280
+         IFAIL = I
+C        ****    END OF MAIN LOOP    ****
+         RMIN = ABS(A(PIVPOS))/ROWMAX
+  280 CONTINUE
+      GO TO 320
+C     ***   ERROR RETURN   ***
+  300 IFAIL = -I
+C
+  320 RETURN
+      END
+      SUBROUTINE F01BSZ(N,A,LICN,IVECT,JVECT,NZ,ICN,LENR,LENRL,LENOFF,
+     *                  IP,IQ,IW1,IW,W1,ABORT,IDISP,IFAIL)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 7E REVISED IER-202 (JUL 1979)
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA28D
+C
+C     SORTS THE USER'S MATRIX INTO THE STRUCTURE OF THE DECOMPOSED
+C     FORM AND CHECKS FOR THE PRESENCE OF DUPLICATE ENTRIES OR
+C     NON-ZEROS LYING OUTSIDE THE SPARSITY PATTERN OF THE
+C     DECOMPOSITION.
+C
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  W1
+      INTEGER           IFAIL, LICN, N, NZ
+      LOGICAL           ABORT
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN)
+      INTEGER           ICN(LICN), IDISP(2), IP(N), IQ(N), IVECT(NZ),
+     *                  IW(N,2), IW1(N,3), JVECT(NZ), LENOFF(N),
+     *                  LENR(N), LENRL(N)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  AA, ZERO
+      INTEGER           I, IBLOCK, IDISP2, IDUMMY, II, INEW, IOLD,
+     *                  ISAVE, J1, J2, JCOMP, JDUMMY, JJ, JNEW, JOLD,
+     *                  MIDPT, NADV, NERR
+      LOGICAL           BLOCKL
+C     .. Local Arrays ..
+      CHARACTER*65      REC(3)
+C     .. External Subroutines ..
+      EXTERNAL          X04AAF, X04ABF, X04BAF
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS, MAX, MOD
+C     .. Data statements ..
+      DATA              ZERO/0.0D0/
+C     .. Executable Statements ..
+      ISAVE = IFAIL
+      IFAIL = 0
+C     NERR IS THE UNIT NUMBER FOR ERROR MESSAGES
+C     NADV IS THE UNIT NUMBER FOR DUPLICATE ELEMENT WARNING MESSAGES
+      CALL X04AAF(0,NERR)
+      CALL X04ABF(0,NADV)
+      BLOCKL = LENOFF(1) .GE. 0
+      IBLOCK = 1
+C     IW1(I,3)  IS SET TO THE BLOCK IN WHICH ROW I LIES AND THE
+C     INVERSE PERMUTATIONS TO IP AND IQ ARE SET IN IW1(.,1) AND
+C     IW1(.,2) RESP.
+C     POINTERS TO BEGINNING OF THE PART OF ROW I IN DIAGONAL AND
+C     OFF-DIAGONAL BLOCKS ARE SET IN IW(I,2) AND IW(I,1) RESP.
+      IW(1,1) = 1
+      IW(1,2) = IDISP(1)
+      DO 20 I = 1, N
+         IW1(I,3) = IBLOCK
+         IF (IP(I).LT.0) IBLOCK = IBLOCK + 1
+         II = ABS(IP(I))
+         IW1(II,1) = I
+         JJ = IQ(I)
+         JJ = ABS(JJ)
+         IW1(JJ,2) = I
+         IF (I.EQ.1) GO TO 20
+         IF (BLOCKL) IW(I,1) = IW(I-1,1) + LENOFF(I-1)
+         IW(I,2) = IW(I-1,2) + LENR(I-1)
+   20 CONTINUE
+C     PLACE EACH NON-ZERO IN TURN INTO ITS CORRECT LOCATION
+C     IN THE A/ICN ARRAY.
+      IDISP2 = IDISP(2)
+      DO 340 I = 1, NZ
+         IF (I.GT.IDISP2) GO TO 40
+         IF (ICN(I).LT.0) GO TO 340
+   40    IOLD = IVECT(I)
+         JOLD = JVECT(I)
+         AA = A(I)
+C        THIS IS A DUMMY LOOP FOR FOLLOWING A CHAIN OF INTERCHANGES.
+C        IT WILL BE EXECUTED NZ TIMES IN TOTAL.
+         DO 280 IDUMMY = 1, NZ
+C           PERFORM SOME VALIDITY CHECKS ON IOLD AND JOLD.
+            IF (IOLD.LE.N .AND. IOLD.GT.0 .AND. JOLD.LE.N .AND. JOLD.GT.
+     *          0) GO TO 60
+            IFAIL = 4
+C           ** CODE FOR OUTPUT OF ERROR MESSAGE **
+            IF (MOD(ISAVE/10,10).NE.0) THEN
+               WRITE (REC,FMT=99999) I, A(I), IOLD, JOLD
+               CALL X04BAF(NERR,REC(1))
+               CALL X04BAF(NERR,REC(2))
+               CALL X04BAF(NERR,REC(3))
+            END IF
+C           ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+            GO TO 360
+   60       INEW = IW1(IOLD,1)
+            JNEW = IW1(JOLD,2)
+C           ARE WE IN A VALID BLOCK AND IS IT DIAGONAL OR
+C           OFF-DIAGONAL...
+            IF (IW1(INEW,3)-IW1(JNEW,3)) 80, 120, 100
+   80       IFAIL = 5
+C           ** CODE FOR OUTPUT OF ERROR MESSAGE **
+            IF (MOD(ISAVE/10,10).NE.0) THEN
+               WRITE (REC,FMT=99998) IOLD, JOLD
+               CALL X04BAF(NERR,REC(1))
+               CALL X04BAF(NERR,REC(2))
+            END IF
+C           ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+            GO TO 360
+  100       J1 = IW(INEW,1)
+            J2 = J1 + LENOFF(INEW) - 1
+            GO TO 220
+C           ELEMENT IS IN DIAGONAL BLOCK.
+  120       J1 = IW(INEW,2)
+            IF (INEW.GT.JNEW) GO TO 140
+            J2 = J1 + LENR(INEW) - 1
+            J1 = J1 + LENRL(INEW)
+            GO TO 220
+  140       J2 = J1 + LENRL(INEW)
+C           BINARY SEARCH OF ORDERED LIST  .. ELEMENT IN L PART OF ROW.
+            DO 200 JDUMMY = 1, N
+               MIDPT = (J1+J2)/2
+               JCOMP = ABS(ICN(MIDPT))
+               IF (JNEW-JCOMP) 160, 260, 180
+  160          J2 = MIDPT
+               GO TO 200
+  180          J1 = MIDPT
+  200       CONTINUE
+            IFAIL = 5
+C           ** CODE FOR OUTPUT OF ERROR MESSAGE **
+            IF (MOD(ISAVE/10,10).NE.0) THEN
+               WRITE (REC,FMT=99997) IOLD, JOLD
+               CALL X04BAF(NERR,REC(1))
+               CALL X04BAF(NERR,REC(2))
+            END IF
+C           ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+            GO TO 360
+C           LINEAR SEARCH ... ELEMENT IN U PART OF ROW OR OFF-DIAGONAL
+C           BLOCKS.
+  220       DO 240 MIDPT = J1, J2
+               IF (ABS(ICN(MIDPT)).EQ.JNEW) GO TO 260
+  240       CONTINUE
+            IFAIL = 5
+C           ** CODE FOR OUTPUT OF ERROR MESSAGE **
+            IF (MOD(ISAVE/10,10).NE.0) THEN
+               WRITE (REC,FMT=99997) IOLD, JOLD
+               CALL X04BAF(NERR,REC(1))
+               CALL X04BAF(NERR,REC(2))
+            END IF
+C           ** END OF CODE FOR OUTPUT OF ERROR MESSAGE **
+            GO TO 360
+C           EQUIVALENT ELEMENT OF ICN IS IN POSITION MIDPT.
+  260       IF (ICN(MIDPT).LT.0) GO TO 320
+            IF (MIDPT.GT.NZ .OR. MIDPT.LE.I) GO TO 300
+            W1 = A(MIDPT)
+            A(MIDPT) = AA
+            AA = W1
+            IOLD = IVECT(MIDPT)
+            JOLD = JVECT(MIDPT)
+            ICN(MIDPT) = -ICN(MIDPT)
+  280    CONTINUE
+  300    A(MIDPT) = AA
+         ICN(MIDPT) = -ICN(MIDPT)
+         GO TO 340
+C        DUPLICATE ELEMENT FOUND
+  320    A(MIDPT) = A(MIDPT) + AA
+C        ** CODE FOR OUTPUT OF WARNING MESSAGE ************************
+         IF (MOD(ISAVE/100,100).NE.0) THEN
+            WRITE (REC,FMT=99996) IOLD, JOLD, AA
+            CALL X04BAF(NADV,REC(1))
+            CALL X04BAF(NADV,REC(2))
+            CALL X04BAF(NADV,REC(3))
+         END IF
+C        ** END OF CODE FOR OUTPUT OF WARNING MESSAGE *****************
+         IF (ABORT) IFAIL = 8
+  340 CONTINUE
+C     RESET ICN ARRAY  AND ZERO ELEMENTS IN L/U BUT NOT IN A.
+C     ALSO CALCULATE MAXIMUM ELEMENT OF A.
+  360 W1 = ZERO
+      DO 400 I = 1, IDISP2
+         IF (ICN(I).LT.0) GO TO 380
+         A(I) = ZERO
+         GO TO 400
+  380    ICN(I) = -ICN(I)
+         W1 = MAX(W1,ABS(A(I)))
+  400 CONTINUE
+      RETURN
+C
+99999 FORMAT (/' ON ENTRY IRN(I) OR ICN(I) IS OUT OF RANGE - I = ',I8,
+     *  /'  A(I) = ',1P,D14.6,'  IRN(I) = ',I8,'  ICN(I) = ',I8)
+99998 FORMAT (/' NON-ZERO ELEMENT (',I6,',',I6,') IN ZERO OFF-DIAGONAL',
+     *  ' BLOCK')
+99997 FORMAT (/' NON-ZERO ELEMENT (',I6,',',I6,') WAS NOT IN L/U PATTE',
+     *  'RN')
+99996 FORMAT (/' F01BSF FOUND DUPLICATE ELEMENT WITH INDICES ',I6,', ',
+     *  I6,/'  VALUE = ',1P,D14.6)
+      END
+      SUBROUTINE F04AXF(N,A,LICN,ICN,IKEEP,RHS,W,MTYPE,IDISP,RESID)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA28C
+C
+C     THE PARAMETERS ARE AS FOLLOWS ....
+C     N     INTEGER  ORDER OF MATRIX  NOT ALTERED BY SUBROUTINE.
+C     A     REAL ARRAY  LENGTH LICN.  THE SAME ARRAY AS WAS USED
+C     .     IN THE MOST RECENT CALL TO F01BRF OR F01BSF.
+C     LICN  INTEGER  LENGTH OF ARRAYS A AND ICN.  NOT ALTERED BY
+C     .     SUBROUTINE.
+C     ICN   INTEGER ARRAY  LENGTH LICN.  SAME ARRAY AS OUTPUT FROM
+C     .     F01BRF.  UNCHANGED BY F04AXF.
+C     IKEEP INTEGER ARRAY  LENGTH 5*N.  SAME ARRAY AS OUTPUT FROM
+C     .     F01BRF.  UNCHANGED BY F04AXF.
+C     RHS   REAL ARRAY  LENGTH N.  ON ENTRY, IT HOLDS THE
+C     .     RIGHT HAND SIDE.  ON EXIT, THE SOLUTION VECTOR.
+C     W     REAL ARRAY  LENGTH N. USED AS WORKSPACE BY
+C     .     F04AXZ.
+C     MTYPE INTEGER  USED TO TELL F04AXZ TO SOLVE THE DIRECT
+C     .     EQUATION (MTYPE=1) OR ITS TRANSPOSE (MTYPE.NE.1).
+C     IDISP INTEGER ARRAY LENGTH 2.  SAME ARRAY AS OUTPUT BY
+C     .     F01BRF.  IT IS UNCHANGED BY F04AXF.
+C     RESID REAL VARIBLE. RETURNS MAXIMUM RESIDUAL OF EQUATIONS
+C     .     WHERE PIVOT WAS ZERO.
+C
+C
+C     F04AXZ PREFORMS THE SOLUTION OF THE SET OF EQUATIONS
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  RESID
+      INTEGER           LICN, MTYPE, N
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN), RHS(N), W(N)
+      INTEGER           ICN(LICN), IDISP(2), IKEEP(N,5)
+C     .. External Subroutines ..
+      EXTERNAL          F04AXZ
+C     .. Executable Statements ..
+      CALL F04AXZ(N,ICN,A,LICN,IKEEP,IKEEP(1,4),IKEEP(1,5)
+     *            ,IDISP,IKEEP(1,2),IKEEP(1,3),RHS,W,MTYPE,RESID)
+      RETURN
+      END
+      SUBROUTINE F04AXZ(N,ICN,A,LICN,LENR,LENRL,LENOFF,IDISP,IP,IQ,X,W,
+     *                  MTYPE,RESID)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     DERIVED FROM HARWELL LIBRARY ROUTINE MA30C
+C
+C     SOLVES THE EQUATIONS  A*X = B  OR  (A**T)*X = B , AFTER  A
+C     HAS BEEN DECOMPOSED BY F01BRF OR F01BSF.
+C
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION  RESID
+      INTEGER           LICN, MTYPE, N
+C     .. Array Arguments ..
+      DOUBLE PRECISION  A(LICN), W(N), X(N)
+      INTEGER           ICN(LICN), IDISP(2), IP(N), IQ(N), LENOFF(N),
+     *                  LENR(N), LENRL(N)
+C     .. Local Scalars ..
+      DOUBLE PRECISION  WI, WII, ZERO
+      INTEGER           I, IB, IBACK, IBLEND, IBLOCK, IEND, IFIRST, II,
+     *                  III, ILAST, J, J1, J2, J3, JJ, JPIV, JPIVP1, K,
+     *                  LJ1, LJ2, LT, LTEND, NUMBLK
+      LOGICAL           NEG, NOBLOC
+C     .. Intrinsic Functions ..
+      INTRINSIC         ABS, MAX
+C     .. Data statements ..
+C
+      DATA              ZERO/0.0D0/
+C     .. Executable Statements ..
+C
+C     THE FINAL VALUE OF RESID IS THE MAXIMUM RESIDUAL FOR AN
+C     INCONSISTENT SET OF EQUATIONS.
+      RESID = ZERO
+C     NOBLOC IS .TRUE. IF SUBROUTINE BLOCK HAS BEEN USED PREVIOUSLY
+C     AND IS .FALSE. OTHERWISE.  THE VALUE .FALSE. MEANS THAT LENOFF
+C     WILL NOT BE SUBSEQUENTLY ACCESSED.
+      NOBLOC = LENOFF(1) .LT. 0
+      IF (MTYPE.NE.1) GO TO 280
+C
+C     WE NOW SOLVE   A * X = B.
+C     NEG IS USED TO INDICATE WHEN THE LAST ROW IN A BLOCK HAS BEEN
+C     REACHED.  IT IS THEN SET TO TRUE WHEREAFTER BACKSUBSTITUTION
+C     IS PERFORMED ON THE BLOCK.
+      NEG = .FALSE.
+C     IP(N) IS NEGATED SO THAT THE LAST ROW OF THE LAST BLOCK CAN
+C     BE RECOGNISED.  IT IS RESET TO ITS POSITIVE VALUE ON EXIT.
+      IP(N) = -IP(N)
+C     PREORDER VECTOR ... W(I) = X(IP(I))
+      DO 20 II = 1, N
+         I = IP(II)
+         I = ABS(I)
+         W(II) = X(I)
+   20 CONTINUE
+C     LT HOLDS THE POSITION OF THE FIRST NON-ZERO IN THE CURRENT
+C     ROW OF THE OFF-DIAGONAL BLOCKS.
+      LT = 1
+C     IFIRST HOLDS THE INDEX OF THE FIRST ROW IN THE CURRENT BLOCK.
+      IFIRST = 1
+C     IBLOCK HOLDS THE POSITION OF THE FIRST NON-ZERO IN THE CURRENT
+C     ROW OF THE LU DECOMPOSITION OF THE DIAGONAL BLOCKS.
+      IBLOCK = IDISP(1)
+C     IF I IS NOT THE LAST ROW OF A BLOCK, THEN A PASS THROUGH THIS
+C     LOOP ADDS THE INNER PRODUCT OF ROW I OF THE OFF-DIAGONAL
+C     BLOCKS AND W TO W AND PERFORMS FORWARD ELIMINATION USING ROW I
+C     OF THE LU DECOMPOSITION.   IF I IS THE LAST ROW OF A BLOCK
+C     THEN, AFTER PERFORMING THESE AFOREMENTIONED OPERATIONS,
+C     BACKSUBSTITUTION IS PERFORMED USING THE ROWS OF THE BLOCK.
+      DO 240 I = 1, N
+         WI = W(I)
+         IF (NOBLOC) GO TO 60
+         IF (LENOFF(I).EQ.0) GO TO 60
+C        OPERATIONS USING LOWER TRIANGULAR BLOCKS.
+C        LTEND IS THE END OF ROW I IN THE OFF-DIAGONAL BLOCKS.
+         LTEND = LT + LENOFF(I) - 1
+         DO 40 JJ = LT, LTEND
+            J = ICN(JJ)
+            WI = WI - A(JJ)*W(J)
+   40    CONTINUE
+C        LT IS SET THE BEGINNING OF THE NEXT OFF-DIAGONAL ROW.
+         LT = LTEND + 1
+C        SET NEG TO .TRUE. IF WE ARE ON THE LAST ROW OF THE BLOCK.
+   60    IF (IP(I).LT.0) NEG = .TRUE.
+         IF (LENRL(I).EQ.0) GO TO 100
+C        FORWARD ELIMINATION PHASE.
+C        IEND IS THE END OF THE L PART OF ROW I IN THE LU
+C        DECOMPOSITION.
+         IEND = IBLOCK + LENRL(I) - 1
+         DO 80 JJ = IBLOCK, IEND
+            J = ICN(JJ)
+            WI = WI + A(JJ)*W(J)
+   80    CONTINUE
+C        IBLOCK IS ADJUSTED TO POINT TO THE START OF THE NEXT ROW.
+  100    IBLOCK = IBLOCK + LENR(I)
+         W(I) = WI
+         IF ( .NOT. NEG) GO TO 240
+C        BACK SUBSTITUTION PHASE.
+C        J1 IS POSITION IN A/ICN AFTER END OF BLOCK BEGINNING IN ROW
+C        IFIRST AND ENDING IN ROW I.
+         J1 = IBLOCK
+C        ARE THERE ANY SINGULARITIES IN THIS BLOCK...  IF NOT, CONTINUE
+C        WITH THE BACKSUBSTITUTION.
+         IB = I
+         IF (IQ(I).GT.0) GO TO 140
+         DO 120 III = IFIRST, I
+            IB = I - III + IFIRST
+            IF (IQ(IB).GT.0) GO TO 140
+            J1 = J1 - LENR(IB)
+            RESID = MAX(RESID,ABS(W(IB)))
+            W(IB) = ZERO
+  120    CONTINUE
+C        ENTIRE BLOCK IS SINGULAR.
+         GO TO 220
+C        EACH PASS THROUGH THIS LOOP PERFORMS THE BACK-SUBSTITUTION
+C        OPERATIONS FOR A SINGLE ROW, STARTING AT THE END OF THE BLOCK
+C        AND WORKING THROUGH IT IN REVERSE ORDER.
+  140    DO 200 III = IFIRST, IB
+            II = IB - III + IFIRST
+C           J2 IS END OF ROW II.
+            J2 = J1 - 1
+C           J1 IS BEGINNING OF ROW II.
+            J1 = J1 - LENR(II)
+C           JPIV IS THE POSITION OF THE PIVOT IN ROW II.
+            JPIV = J1 + LENRL(II)
+            JPIVP1 = JPIV + 1
+C           IF ROW  II OF U HAS NO NON-ZEROS GO TO 90.
+            IF (J2.LT.JPIVP1) GO TO 180
+            WII = W(II)
+            DO 160 JJ = JPIVP1, J2
+               J = ICN(JJ)
+               WII = WII - A(JJ)*W(J)
+  160       CONTINUE
+            W(II) = WII
+  180       W(II) = W(II)/A(JPIV)
+  200    CONTINUE
+  220    IFIRST = I + 1
+         NEG = .FALSE.
+  240 CONTINUE
+C
+C     REORDER SOLUTION VECTOR ... X(I) = W(IQINVERSE(I))
+      DO 260 II = 1, N
+         I = IQ(II)
+         I = ABS(I)
+         X(I) = W(II)
+  260 CONTINUE
+      IP(N) = -IP(N)
+      GO TO 640
+C
+C     WE NOW SOLVE   (A**T) * X = B.
+C     PREORDER VECTOR ... W(I)=X(IQ(I))
+  280 DO 300 II = 1, N
+         I = IQ(II)
+         I = ABS(I)
+         W(II) = X(I)
+  300 CONTINUE
+C     LJ1 POINTS TO THE BEGINNING THE CURRENT ROW IN THE
+C     OFF-DIAGONAL BLOCKS.
+      LJ1 = IDISP(1)
+C     IBLOCK IS INITIALIZED TO POINT TO THE BEGINNING OF THE BLOCK
+C     AFTER THE LAST ONE.
+      IBLOCK = IDISP(2) + 1
+C     ILAST IS THE LAST ROW IN THE CURRENT BLOCK.
+      ILAST = N
+C     IBLEND POINTS TO THE POSITION AFTER THE LAST NON-ZERO IN THE
+C     CURRENT BLOCK.
+      IBLEND = IBLOCK
+C     EACH PASS THROUGH THIS LOOP OPERATES WITH ONE DIAGONAL BLOCK
+C     AND THE OFF-DIAGONAL PART OF THE MATRIX CORRESPONDING TO THE
+C     ROWS OF THIS BLOCK.  THE BLOCKS ARE TAKEN IN REVERSE ORDER AND
+C     THE NUMBER OF TIMES THE LOOP IS ENTERED IS
+C     MIN(N,NO. BLOCKS+1).
+      DO 580 NUMBLK = 1, N
+         IF (ILAST.EQ.0) GO TO 600
+         IBLOCK = IBLOCK - LENR(ILAST)
+C        THIS LOOP FINDS THE INDEX OF THE FIRST ROW IN THE CURRENT
+C        BLOCK... IT IS FIRST AND IBLOCK IS SET TO THE POSITION OF
+C        THE BEGINNING OF THIS FIRST ROW.
+         DO 320 K = 1, N
+            II = ILAST - K
+            IF (II.EQ.0) GO TO 340
+            IF (IP(II).LT.0) GO TO 340
+            IBLOCK = IBLOCK - LENR(II)
+  320    CONTINUE
+  340    IFIRST = II + 1
+C        J1 POINTS TO THE POSITION OF THE BEGINNING OF ROW I (LT PART)
+C        OR PIVOT
+         J1 = IBLOCK
+C        FORWARD ELIMINATION.
+C        EACH PASS THROUGH THIS LOOP PERFORMS THE OPERATIONS FOR ONE
+C        ROW OF THE BLOCK.  IF THE CORRESPONDING ELEMENT OF W IS ZERO
+C        THEN THE OPERATIONS CAN BE AVOIDED.
+         DO 420 I = IFIRST, ILAST
+            IF (W(I).EQ.ZERO) GO TO 400
+C           IS ROW I SINGULAR...  IF SO, GO TO ...
+            IF (IQ(I).LT.0) GO TO 440
+C           J2 FIRST POINTS TO THE PIVOT IN ROW I AND THEN IS MADE TO
+C           POINT TO THE FIRST NON-ZERO IN THE U TRANSPOSE PART OF THE
+C           ROW.
+            J2 = J1 + LENRL(I)
+            WI = W(I)/A(J2)
+            IF (LENR(I)-LENRL(I).EQ.1) GO TO 380
+            J2 = J2 + 1
+C           J3 POINTS TO THE END OF ROW I.
+            J3 = J1 + LENR(I) - 1
+            DO 360 JJ = J2, J3
+               J = ICN(JJ)
+               W(J) = W(J) - A(JJ)*WI
+  360       CONTINUE
+  380       W(I) = WI
+  400       J1 = J1 + LENR(I)
+  420    CONTINUE
+         GO TO 480
+C        DEALS WITH REST OF BLOCK WHICH IS SINGULAR.
+  440    DO 460 II = I, ILAST
+            RESID = MAX(RESID,ABS(W(II)))
+            W(II) = ZERO
+  460    CONTINUE
+C        BACK SUBSTITUTION.
+C        THIS LOOP DOES THE BACK SUBSTITUTION ON THE ROWS OF THE BLOCK
+C        IN THE REVERSE ORDER DOING IT SIMULTANEOUSLY ON THE L
+C        TRANSPOSE PART OF THE DIAGONAL BLOCKS AND THE OFF-DIAGONAL
+C        BLOCKS.
+  480    J1 = IBLEND
+         DO 560 IBACK = IFIRST, ILAST
+            I = ILAST - IBACK + IFIRST
+C           J1 POINTS TO THE BEGINNING OF ROW I.
+            J1 = J1 - LENR(I)
+            IF (LENRL(I).EQ.0) GO TO 520
+C           J2 POINTS TO THE END OF THE L TRANSPOSE PART OF ROW I.
+            J2 = J1 + LENRL(I) - 1
+            DO 500 JJ = J1, J2
+               J = ICN(JJ)
+               W(J) = W(J) + A(JJ)*W(I)
+  500       CONTINUE
+  520       IF (NOBLOC) GO TO 560
+C           OPERATIONS USING LOWER TRIANGULAR BLOCKS.
+            IF (LENOFF(I).EQ.0) GO TO 560
+C           LJ2 POINTS TO THE END OF ROW I OF THE OFF-DIAGONAL BLOCKS.
+            LJ2 = LJ1 - 1
+C           LJ1 POINTS TO THE BEGINNING OF ROW I OF THE OFF-DIAGONAL
+C           BLOCKS.
+            LJ1 = LJ1 - LENOFF(I)
+            DO 540 JJ = LJ1, LJ2
+               J = ICN(JJ)
+               W(J) = W(J) - A(JJ)*W(I)
+  540       CONTINUE
+  560    CONTINUE
+         IBLEND = J1
+         ILAST = IFIRST - 1
+  580 CONTINUE
+C     REORDER SOLUTION VECTOR ... X(I)=W(IPINVERSE(I))
+  600 DO 620 II = 1, N
+         I = IP(II)
+         I = ABS(I)
+         X(I) = W(II)
+  620 CONTINUE
+C
+  640 RETURN
+      END
+      SUBROUTINE F06BAF( A, B, C, S )
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION   A, B, C, S
+C     ..
+C
+C  Nag  Fortran 77  version of the  SROTG BLAS,  except that c is always
+C  returned as non-negative and  b  is overwritten by the tangent of the
+C  angle that defines the plane rotation.
+C
+C  c and s are given as
+C
+C     c = 1.0/sqrt( 1.0 + t**2 ),   s = c*t   where   t = b/a.
+C
+C  When  abs( b ) .le. eps*abs( a ),  where  eps is the relative machine
+C  precision as  returned by routine  X02AJF,  then  c and s  are always
+C  returned as
+C
+C     c = 1.0  and  s = 0.0
+C
+C  and when  abs( a ) .le. eps*abs( b ) then c and s are always returned
+C  as
+C
+C     c = 0.0  and  s = sign( t ).
+C
+C  Note that t is always returned as  b/a, unless this would overflow in
+C  which  case the value  sign( t )*flmax  is returned,  where  flmax is
+C  the value given by  1/X02AMF( ).
+C
+C  c and s  can be reconstructed from the tangent,  t,  by a call to the
+C  Nag basic linear algebra routine F06BCF.
+C
+C
+C  Nag Fortran 77 O( 1 ) basic linear algebra routine.
+C
+C  -- Written on 3-January-1986.
+C     Sven Hammarling, Nag Central Office.
+C
+C
+C     .. Parameters ..
+      DOUBLE PRECISION   ONE         , ZERO
+      PARAMETER        ( ONE = 1.0D+0, ZERO = 0.0D+0 )
+C     .. Local Scalars ..
+      DOUBLE PRECISION   T
+      LOGICAL            FAIL
+C     .. External Functions ..
+      DOUBLE PRECISION   F06BLF
+      EXTERNAL           F06BLF
+C     .. External Subroutines ..
+      EXTERNAL           F06BCF
+C     ..
+C     .. Executable Statements ..
+      IF( B.EQ.ZERO )THEN
+         C  = ONE
+         S  = ZERO
+      ELSE
+         T  = F06BLF( B, A, FAIL )
+         CALL F06BCF( T, C, S )
+         A  = C*A + S*B
+         B  = T
+      END IF
+C
+      RETURN
+C
+C     End of F06BAF. ( SROTGC )
+C
+      END
+      SUBROUTINE F06BCF( T, C, S )
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C     MARK 13 REVISED. IER-602 (MAR 1988).
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION   C, S, T
+C     ..
+C
+C  F06BCF returns values c and s such that
+C
+C     c = cos( theta ),   s = sin( theta )
+C
+C  for a given value of
+C
+C     t = tan( theta ).
+C
+C  c is always non-negative and s has the same sign as t, so that
+C
+C     c = 1.0/sqrt( 1.0 + t**2 ),   s = t/sqrt( 1.0 + t**2 ).
+C
+C  Nag Fortran 77 O( 1 ) basic linear algebra routine.
+C
+C  -- Written on 28-February-1986.
+C     Sven Hammarling, Nag Central Office.
+C  -- Modified 19-August-1987.
+C     Sven Hammarling and Jeremy Du Croz, Nag Central Office.
+C        No longer sets s to zero when t is less than eps.
+C
+C
+C     .. Parameters ..
+      DOUBLE PRECISION   ONE
+      PARAMETER        ( ONE = 1.0D+0 )
+C     .. Local Scalars ..
+      DOUBLE PRECISION   ABST, EPS, REPS, RRTEPS, RTEPS
+      LOGICAL            FIRST
+C     .. External Functions ..
+      DOUBLE PRECISION   X02AJF
+      EXTERNAL           X02AJF
+C     .. Intrinsic Functions ..
+      INTRINSIC          ABS, SIGN, SQRT
+C     .. Save statement ..
+      SAVE               FIRST, EPS, REPS, RTEPS, RRTEPS
+C     .. Data statements ..
+      DATA               FIRST/ .TRUE. /
+C     ..
+C     .. Executable Statements ..
+      IF( FIRST )THEN
+         FIRST  = .FALSE.
+         EPS    =  X02AJF( )
+         REPS   =  1/EPS
+         RTEPS  =  SQRT( EPS )
+         RRTEPS =  1/RTEPS
+      END IF
+C
+      ABST = ABS( T )
+      IF( ABST.LT.RTEPS )THEN
+         C = ONE
+         S = T
+      ELSE IF( ABST.GT.RRTEPS )THEN
+         C = 1/ABST
+         S = SIGN( ONE, T )
+      ELSE
+         C = 1/SQRT( 1 + ABST**2 )
+         S = C*T
+      END IF
+C
+      RETURN
+C
+C     End of F06BCF. ( SCSG )
+C
+      END
+      DOUBLE PRECISION FUNCTION F06BLF( A, B, FAIL )
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION                  A, B
+      LOGICAL                           FAIL
+C     ..
+C
+C  F06BLF returns the value div given by
+C
+C     div = ( a/b                 if a/b does not overflow,
+C           (
+C           ( 0.0                 if a .eq. 0.0,
+C           (
+C           ( sign( a/b )*flmax   if a .ne. 0.0  and a/b would overflow,
+C
+C  where  flmax  is a large value, via the function name. In addition if
+C  a/b would overflow then  fail is returned as true, otherwise  fail is
+C  returned as false.
+C
+C  Note that when  a and b  are both zero, fail is returned as true, but
+C  div  is returned as  0.0. In all other cases of overflow  div is such
+C  that  abs( div ) = flmax.
+C
+C  When  b = 0  then  sign( a/b )  is taken as  sign( a ).
+C
+C  Nag Fortran 77 O( 1 ) basic linear algebra routine.
+C
+C  -- Written on 26-October-1982.
+C     Sven Hammarling, Nag Central Office.
+C
+C
+C     .. Parameters ..
+      DOUBLE PRECISION      ONE         , ZERO
+      PARAMETER           ( ONE = 1.0D+0, ZERO = 0.0D+0 )
+C     .. Local Scalars ..
+      DOUBLE PRECISION      ABSB, DIV, FLMAX, FLMIN
+      LOGICAL               FIRST
+C     .. External Functions ..
+      DOUBLE PRECISION      X02AMF
+      EXTERNAL              X02AMF
+C     .. Intrinsic Functions ..
+      INTRINSIC             ABS, SIGN
+C     .. Save statement ..
+      SAVE                  FIRST, FLMIN, FLMAX
+C     .. Data statements ..
+      DATA                  FIRST/ .TRUE. /
+C     ..
+C     .. Executable Statements ..
+      IF( A.EQ.ZERO )THEN
+         DIV = ZERO
+         IF( B.EQ.ZERO )THEN
+            FAIL = .TRUE.
+         ELSE
+            FAIL = .FALSE.
+         END IF
+      ELSE
+C
+         IF( FIRST )THEN
+            FIRST = .FALSE.
+            FLMIN =  X02AMF( )
+            FLMAX =  1/FLMIN
+         END IF
+C
+         IF( B.EQ.ZERO )THEN
+            DIV  =  SIGN( FLMAX, A )
+            FAIL = .TRUE.
+         ELSE
+            ABSB = ABS( B )
+            IF( ABSB.GE.ONE )THEN
+               FAIL = .FALSE.
+               IF( ABS( A ).GE.ABSB*FLMIN )THEN
+                  DIV = A/B
+               ELSE
+                  DIV = ZERO
+               END IF
+            ELSE
+               IF( ABS( A ).LE.ABSB*FLMAX )THEN
+                  FAIL = .FALSE.
+                  DIV  =  A/B
+               ELSE
+                  FAIL = .TRUE.
+                  DIV  = FLMAX
+                  IF( ( ( A.LT.ZERO ).AND.( B.GT.ZERO ) ).OR.
+     $                ( ( A.GT.ZERO ).AND.( B.LT.ZERO ) )     )
+     $               DIV = -DIV
+               END IF
+            END IF
+         END IF
+      END IF
+C
+      F06BLF = DIV
+      RETURN
+C
+C     End of F06BLF. ( SDIV )
+C
+      END
+      SUBROUTINE F06FBF( N, CONST, X, INCX )
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION   CONST
+      INTEGER            INCX, N
+C     .. Array Arguments ..
+      DOUBLE PRECISION   X( * )
+C     ..
+C
+C  F06FBF performs the operation
+C
+C     x = const*e,   e' = ( 1  1 ... 1 ).
+C
+C
+C  Nag Fortran 77 O( n ) basic linear algebra routine.
+C
+C  -- Written on 22-September-1983.
+C     Sven Hammarling, Nag Central Office.
+C
+C
+C     .. Parameters ..
+      DOUBLE PRECISION   ZERO
+      PARAMETER        ( ZERO = 0.0D+0 )
+C     .. Local Scalars ..
+      INTEGER            IX
+C     ..
+C     .. Executable Statements ..
+      IF( N.GT.0 )THEN
+         IF( CONST.NE.ZERO )THEN
+            DO 10, IX = 1, 1 + ( N - 1 )*INCX, INCX
+               X( IX ) = CONST
+   10       CONTINUE
+         ELSE
+            DO 20, IX = 1, 1 + ( N - 1 )*INCX, INCX
+               X( IX ) = ZERO
+   20       CONTINUE
+         END IF
+      END IF
+C
+      RETURN
+C
+C     End of F06FBF. ( SLOAD )
+C
+      END
+      INTEGER FUNCTION P01ABF(IFAIL,IERROR,SRNAME,NREC,REC)
+C     MARK 11.5(F77) RELEASE. NAG COPYRIGHT 1986.
+C     MARK 13 REVISED. IER-621 (APR 1988).
+C     MARK 13B REVISED. IER-668 (AUG 1988).
+C
+C     P01ABF is the error-handling routine for the NAG Library.
+C
+C     P01ABF either returns the value of IERROR through the routine
+C     name (soft failure), or terminates execution of the program
+C     (hard failure). Diagnostic messages may be output.
+C
+C     If IERROR = 0 (successful exit from the calling routine),
+C     the value 0 is returned through the routine name, and no
+C     message is output
+C
+C     If IERROR is non-zero (abnormal exit from the calling routine),
+C     the action taken depends on the value of IFAIL.
+C
+C     IFAIL =  1: soft failure, silent exit (i.e. no messages are
+C                 output)
+C     IFAIL = -1: soft failure, noisy exit (i.e. messages are output)
+C     IFAIL =-13: soft failure, noisy exit but standard messages from
+C                 P01ABF are suppressed
+C     IFAIL =  0: hard failure, noisy exit
+C
+C     For compatibility with certain routines included before Mark 12
+C     P01ABF also allows an alternative specification of IFAIL in which
+C     it is regarded as a decimal integer with least significant digits
+C     cba. Then
+C
+C     a = 0: hard failure  a = 1: soft failure
+C     b = 0: silent exit   b = 1: noisy exit
+C
+C     except that hard failure now always implies a noisy exit.
+C
+C     S.Hammarling, M.P.Hooper and J.J.du Croz, NAG Central Office.
+C
+C     .. Scalar Arguments ..
+      INTEGER                 IERROR, IFAIL, NREC
+      CHARACTER*(*)           SRNAME
+C     .. Array Arguments ..
+      CHARACTER*(*)           REC(*)
+C     .. Local Scalars ..
+      INTEGER                 I, NERR
+      CHARACTER*72            MESS
+C     .. External Subroutines ..
+      EXTERNAL                P01ABZ, X04AAF, X04BAF
+C     .. Intrinsic Functions ..
+      INTRINSIC               ABS, MOD
+C     .. Executable Statements ..
+      IF (IERROR.NE.0) THEN
+C        Abnormal exit from calling routine
+         IF (IFAIL.EQ.-1 .OR. IFAIL.EQ.0 .OR. IFAIL.EQ.-13 .OR.
+     *       (IFAIL.GT.0 .AND. MOD(IFAIL/10,10).NE.0)) THEN
+C           Noisy exit
+            CALL X04AAF(0,NERR)
+            DO 20 I = 1, NREC
+               CALL X04BAF(NERR,REC(I))
+   20       CONTINUE
+            IF (IFAIL.NE.-13) THEN
+               WRITE (MESS,FMT=99999) SRNAME, IERROR
+               CALL X04BAF(NERR,MESS)
+               IF (ABS(MOD(IFAIL,10)).NE.1) THEN
+C                 Hard failure
+                  CALL X04BAF(NERR,
+     *                     ' ** NAG hard failure - execution terminated'
+     *                        )
+                  CALL P01ABZ
+               ELSE
+C                 Soft failure
+                  CALL X04BAF(NERR,
+     *                        ' ** NAG soft failure - control returned')
+               END IF
+            END IF
+         END IF
+      END IF
+      P01ABF = IERROR
+      RETURN
+C
+99999 FORMAT (' ** ABNORMAL EXIT from NAG Library routine ',A,': IFAIL',
+     *  ' =',I6)
+      END
+      SUBROUTINE P01ABZ
+C     MARK 11.5(F77) RELEASE. NAG COPYRIGHT 1986.
+C
+C     Terminates execution when a hard failure occurs.
+C
+C     ******************** IMPLEMENTATION NOTE ********************
+C     The following STOP statement may be replaced by a call to an
+C     implementation-dependent routine to display a message and/or
+C     to abort the program.
+C     *************************************************************
+C     .. Executable Statements ..
+      STOP
+      END
+      DOUBLE PRECISION FUNCTION X02AJF()
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C
+C     RETURNS  (1/2)*B**(1-P)  IF ROUNDS IS .TRUE.
+C     RETURNS  B**(1-P)  OTHERWISE
+C
+      DOUBLE PRECISION X02CON
+      DATA X02CON /1.11022302462516D-16 /
+C     .. Executable Statements ..
+      X02AJF = X02CON
+      RETURN
+      END
+      DOUBLE PRECISION FUNCTION X02AMF()
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C
+C     RETURNS THE 'SAFE RANGE' PARAMETER
+C     I.E. THE SMALLEST POSITIVE MODEL NUMBER Z SUCH THAT
+C     FOR ANY X WHICH SATISFIES X.GE.Z AND X.LE.1/Z
+C     THE FOLLOWING CAN BE COMPUTED WITHOUT OVERFLOW, UNDERFLOW OR OTHER
+C     ERROR
+C
+C        -X
+C        1.0/X
+C        SQRT(X)
+C        LOG(X)
+C        EXP(LOG(X))
+C        Y**(LOG(X)/LOG(Y)) FOR ANY Y
+C
+      DOUBLE PRECISION X02CON
+      DATA X02CON /2.22507385850721D-308 /
+C     .. Executable Statements ..
+      X02AMF = X02CON
+      RETURN
+      END
+      INTEGER FUNCTION X02BHF()
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C
+C     RETURNS THE MODEL PARAMETER, B.
+C
+C     .. Executable Statements ..
+      X02BHF =     2
+      RETURN
+      END
+      INTEGER FUNCTION X02BJF()
+C     MARK 12 RELEASE. NAG COPYRIGHT 1986.
+C
+C     RETURNS THE MODEL PARAMETER, p.
+C
+C     .. Executable Statements ..
+      X02BJF =    53
+      RETURN
+      END
+      LOGICAL FUNCTION X02DAF(X)
+C     MARK 8 RELEASE. NAG COPYRIGHT 1980.
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C
+C     RETURNS .FALSE. IF THE SYSTEM SETS UNDERFLOWING QUANTITIES
+C     TO ZERO, WITHOUT ANY ERROR INDICATION OR UNDESIRABLE WARNING
+C     OR SYSTEM OVERHEAD.
+C     RETURNS .TRUE. OTHERWISE, IN WHICH CASE CERTAIN LIBRARY
+C     ROUTINES WILL TAKE SPECIAL PRECAUTIONS TO AVOID UNDERFLOW
+C     (USUALLY AT SOME COST IN EFFICIENCY).
+C
+C     X IS A DUMMY ARGUMENT
+C
+C     .. Scalar Arguments ..
+      DOUBLE PRECISION        X
+C     .. Executable Statements ..
+      X02DAF = .FALSE.
+      RETURN
+      END
+      SUBROUTINE X02ZAZ
+C     MARK 16 REVISED. IER-1046 (JUN 1993).
+C
+C***********************************************************************
+C
+C     NAG version of the Stanford routine MCHPAR.
+C     Sven Hammarling, NAG Central Office.
+C
+C     X02ZAZ sets machine parameters as follows:
+C
+C     WMACH(  1 ) = nbase  = base of floating-point arithmetic.
+C     WMACH(  2 ) = ndigit = no. of base ( nbase ) digits in the
+C                            mantissa
+C     WMACH(  3 ) = eps    = relative machine accuracy. (X02AJF.)
+C     WMACH(  4 ) = rteps  = sqrt( eps ).
+C     WMACH(  5 ) = rmin   = small positive floating-point number whose
+C                             reciprocal does not overflow.
+C     WMACH(  6 ) = rtrmin = sqrt( rmin ).
+C     WMACH(  7 ) = rmax   = 1/rmin
+C     WMACH(  8 ) = rtrmax = sqrt( rmax ).
+C     WMACH(  9 ) = undflw = 0 if underflow is not fatal, +ve otherwise.
+C     WMACH( 10 ) = nin    = input  stream unit number. ( 5.)
+C     WMACH( 11 ) = nout   = output stream unit number.
+C                          = advisory message unit number. ( X04ABF.)
+C     WMACH( 12 ) = nerr   = error    message unit number. ( X04AAF.)
+C     WMACH( 13 )
+C     WMACH( 14 )   Not currently used.
+C     WMACH( 15 )
+C
+C     Note that constants that represent integers may hold a number just
+C     less than the integer, so that the integer should be recovered by
+C     adding, say, 0.25. e.g.
+C
+C     IBASE = WMACH( 1 ) + 0.25
+C
+C***********************************************************************
+C
+C     .. Parameters ..
+      DOUBLE PRECISION ZERO
+      PARAMETER        (ZERO=0.0D+0)
+C     .. Arrays in Common ..
+      DOUBLE PRECISION WMACH(15)
+C     .. Local Scalars ..
+      DOUBLE PRECISION EPS, RMAX, RMIN, UNDFLW
+      INTEGER          NBASE, NDIGIT, NERR, NOUT
+      LOGICAL          FIRST
+C     .. External Functions ..
+      DOUBLE PRECISION X02AJF, X02AMF
+      INTEGER          X02BHF, X02BJF
+      LOGICAL          X02DAF
+      EXTERNAL         X02AJF, X02AMF, X02BHF, X02BJF, X02DAF
+C     .. External Subroutines ..
+      EXTERNAL         X04AAF, X04ABF
+C     .. Intrinsic Functions ..
+      INTRINSIC        SQRT
+C     .. Common blocks ..
+      COMMON           /AX02ZA/WMACH
+C     .. Save statement ..
+      SAVE             /AX02ZA/, FIRST
+C     .. Data statements ..
+      DATA             FIRST/.TRUE./
+C     .. Executable Statements ..
+C
+      IF (FIRST) THEN
+         FIRST = .FALSE.
+C
+         IF (X02DAF(ZERO)) THEN
+            UNDFLW = 1
+         ELSE
+            UNDFLW = 0
+         END IF
+         NBASE = X02BHF()
+         NDIGIT = X02BJF()
+         EPS = X02AJF()
+         RMIN = X02AMF()
+         RMAX = 1/RMIN
+C
+         WMACH(1) = NBASE
+         WMACH(2) = NDIGIT
+         WMACH(3) = EPS
+         WMACH(4) = SQRT(EPS)
+         WMACH(5) = RMIN
+         WMACH(6) = SQRT(RMIN)
+         WMACH(7) = RMAX
+         WMACH(8) = SQRT(RMAX)
+         WMACH(9) = UNDFLW
+      END IF
+      CALL X04ABF(0,NOUT)
+      WMACH(10) = 5
+      WMACH(11) = NOUT
+      CALL X04AAF(0,NERR)
+      WMACH(12) = NERR
+      RETURN
+C
+C     End of  X02ZAZ. (MCHPAR)
+C
+      END
+      SUBROUTINE X04AAF(I,NERR)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 7C REVISED IER-190 (MAY 1979)
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     MARK 14 REVISED. IER-829 (DEC 1989).
+C     IF I = 0, SETS NERR TO CURRENT ERROR MESSAGE UNIT NUMBER
+C     (STORED IN NERR1).
+C     IF I = 1, CHANGES CURRENT ERROR MESSAGE UNIT NUMBER TO
+C     VALUE SPECIFIED BY NERR.
+C
+C     .. Scalar Arguments ..
+      INTEGER           I, NERR
+C     .. Local Scalars ..
+      INTEGER           NERR1
+C     .. Save statement ..
+      SAVE              NERR1
+C     .. Data statements ..
+      DATA              NERR1/0/
+C     .. Executable Statements ..
+      IF (I.EQ.0) NERR = NERR1
+      IF (I.EQ.1) NERR1 = NERR
+      RETURN
+      END
+      SUBROUTINE X04ABF(I,NADV)
+C     MARK 7 RELEASE. NAG COPYRIGHT 1978
+C     MARK 7C REVISED IER-190 (MAY 1979)
+C     MARK 11.5(F77) REVISED. (SEPT 1985.)
+C     MARK 14 REVISED. IER-830 (DEC 1989).
+C      IF I = 0, SETS NADV TO CURRENT ADVISORY MESSAGE UNIT NUMBER
+C     (STORED IN NADV1).
+C     IF I = 1, CHANGES CURRENT ADVISORY MESSAGE UNIT NUMBER TO
+C     VALUE SPECIFIED BY NADV.
+C
+C     .. Scalar Arguments ..
+      INTEGER           I, NADV
+C     .. Local Scalars ..
+      INTEGER           NADV1
+C     .. Save statement ..
+      SAVE              NADV1
+C     .. Data statements ..
+      DATA              NADV1/6/
+C     .. Executable Statements ..
+      IF (I.EQ.0) NADV = NADV1
+      IF (I.EQ.1) NADV1 = NADV
+      RETURN
+      END
+      SUBROUTINE X04BAF(NOUT,REC)
+C     MARK 11.5(F77) RELEASE. NAG COPYRIGHT 1986.
+C
+C     X04BAF writes the contents of REC to the unit defined by NOUT.
+C
+C     Trailing blanks are not output, except that if REC is entirely
+C     blank, a single blank character is output.
+C     If NOUT.lt.0, i.e. if NOUT is not a valid Fortran unit identifier,
+C     then no output occurs.
+C
+C     .. Scalar Arguments ..
+      INTEGER           NOUT
+      CHARACTER*(*)     REC
+C     .. Local Scalars ..
+      INTEGER           I
+C     .. Intrinsic Functions ..
+      INTRINSIC         LEN
+C     .. Executable Statements ..
+      IF (NOUT.GE.0) THEN
+C        Remove trailing blanks
+         DO 20 I = LEN(REC), 2, -1
+            IF (REC(I:I).NE.' ') GO TO 40
+   20    CONTINUE
+C        Write record to external file
+   40    WRITE (NOUT,FMT=99999) REC(1:I)
+      END IF
+      RETURN
+C
+99999 FORMAT (A)
+      END

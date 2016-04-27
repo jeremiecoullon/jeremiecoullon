@@ -1,0 +1,26 @@
+"dat/xx"			! output file (CHARACTER)
+"dat/xx_t_006_500"	! input file (CHARACTER)
+
+   0	! initial conditions (INTEGER)
+   1	! frequency of output (INTEGER)
+100000	! No of time steps (INTEGER)
+ 5001	! No of mesh points (INTEGER)
+
+ 0.00	! initial time (REAL)
+ 0.01	! time step (REAL)
+ 10.	! maximal X (REAL)
+
+-0.2	! beta (REAL)
+ 1.D0	! tau  (REAL)
+
+ 
+ 4      ! No of parameters (<=9,INTEGER)
+
+	0.2		(1) ! Entry Q
+	0.87548607E-01	(2) ! Left  Rho
+	0.47728160E+00	(3) ! Right Rho
+		1	(4) ! Free Boundary? 
+
+ 0      ! No of output poins (<=9,INTEGER)
+
+
