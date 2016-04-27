@@ -1,9 +1,0 @@
-sbr    ! output file (CHARACTER)
-1000    ! No of points (INTEGER)
-
- 1     ! No of parameters (<=9,INTEGER)
-
-   0.0000000 (1) ! Some parameter
-
- 1.0000000 ! Maximal density
-
